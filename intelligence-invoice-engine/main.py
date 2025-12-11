@@ -13,6 +13,7 @@ logger.info(f"Added to sys.path: {Path(__file__).parent}")
 
 from fastapi import FastAPI, UploadFile, File, Request, Query
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from extract_invoice import extract_invoice_from_xls_bytes
 from workflow import run_workflow
 from rag_engine import RAGEngine
@@ -20,6 +21,15 @@ import traceback
 
 app = FastAPI(title="Invoice AI Processor")
 logger.info("FastAPI app initialized")
+
+# Add CORS middleware for UI integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
