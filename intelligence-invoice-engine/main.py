@@ -102,6 +102,15 @@ async def process_invoice(file: UploadFile = File(...)):
             "similar_invoices": result.get("similar_invoices", []),
             "is_duplicate": result.get("is_duplicate", False),
             "duplicate_details": result.get("duplicate_details"),
+            # Autonomous Decision Making Results
+            "next_action": result.get("next_action", "APPROVE"),
+            "decision_reasoning": result.get("decision_reasoning", ""),
+            "risk_level": result.get("risk_level", "LOW"),
+            "risk_analysis": result.get("risk_analysis", ""),
+            "requires_approval": result.get("requires_approval", False),
+            "escalate_to_human": result.get("escalate_to_human", False),
+            "escalation_reason": result.get("escalation_reason", ""),
+            "priority_level": result.get("priority_level", "NORMAL"),
             "synthesis": result.get("synthesis", "")
         }
 

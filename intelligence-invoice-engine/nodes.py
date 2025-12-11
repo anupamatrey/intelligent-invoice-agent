@@ -217,8 +217,245 @@ def synth_node(state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.exception("synth_node: generate_answer failed, falling back to plain summary")
             # fallback synthesis
-            answer = f"Validation overall_ok={validation.get('overall_ok')}. Issues: {validation.get('issues')}. No duplicates detected."
+            answer = f"Validation overall_ok={validation.get('overall_ok')}. Issues: {validation.get('issues')}"
 
     state["synthesis"] = answer
     logger.debug("synth_node: synthesis completed")
+    return state
+
+# -----------------------
+# AUTONOMOUS DECISION NODES
+# -----------------------
+
+def decision_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    LLM analyzes invoice and decides next processing action
+    Produces: state["next_action"], state["decision_reasoning"]
+    """
+    invoice = state.get("invoice", {})
+    validation = state.get("validation", {})
+    is_duplicate = state.get("is_duplicate", False)
+    
+    prompt = f"""
+    Analyze this invoice and decide the next action:
+    
+    Invoice Details:
+    - Number: {invoice.get('invoice_number', 'N/A')}
+    - Vendor: {invoice.get('vendor', 'N/A')}
+    - Amount: {invoice.get('total_amount', 'N/A')}
+    - Date: {invoice.get('date', 'N/A')}
+    
+    Validation Status:
+    - Overall OK: {validation.get('overall_ok', False)}
+    - Issues: {validation.get('issues', [])}
+    
+    Duplicate Status: {is_duplicate}
+    
+    Choose ONE action and provide reasoning:
+    1. APPROVE - Process normally (low risk, all validations pass)
+    2. MANUAL_REVIEW - Requires human review (medium risk, some concerns)
+    3. REJECT - Reject immediately (high risk, major issues)
+    4. REQUEST_INFO - Need more information (missing critical data)
+    
+    Format: ACTION: [choice] | REASON: [brief explanation]
+    """
+    
+    try:
+        decision_response = rag_engine.generate_answer(prompt, [])
+        
+        # Parse the response
+        if "ACTION:" in decision_response and "REASON:" in decision_response:
+            parts = decision_response.split("|")
+            action_part = parts[0].replace("ACTION:", "").strip().upper()
+            reason_part = parts[1].replace("REASON:", "").strip() if len(parts) > 1 else "No reason provided"
+        else:
+            # Fallback parsing
+            action_part = "MANUAL_REVIEW"  # Safe default
+            reason_part = decision_response
+        
+        # Validate action
+        valid_actions = ["APPROVE", "MANUAL_REVIEW", "REJECT", "REQUEST_INFO"]
+        if action_part not in valid_actions:
+            action_part = "MANUAL_REVIEW"
+        
+        state["next_action"] = action_part
+        state["decision_reasoning"] = reason_part
+        
+    except Exception as e:
+        logger.exception("decision_node: LLM decision failed, using fallback logic")
+        # Fallback decision logic
+        if is_duplicate:
+            state["next_action"] = "REJECT"
+            state["decision_reasoning"] = "Duplicate invoice detected"
+        elif not validation.get("overall_ok", False):
+            state["next_action"] = "MANUAL_REVIEW"
+            state["decision_reasoning"] = "Validation issues found"
+        else:
+            state["next_action"] = "APPROVE"
+            state["decision_reasoning"] = "All checks passed"
+    
+    logger.debug(f"decision_node: Action={state['next_action']}, Reason={state['decision_reasoning']}")
+    return state
+
+def risk_assessment_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    LLM assesses risk level and determines processing priority
+    Produces: state["risk_level"], state["risk_analysis"], state["requires_approval"]
+    """
+    invoice = state.get("invoice", {})
+    similar_invoices = state.get("similar_invoices", [])
+    validation = state.get("validation", {})
+    
+    # Extract amount as float for analysis
+    amount_str = invoice.get("total_amount", "0")
+    try:
+        amount = float(amount_str.replace(",", "").replace("$", ""))
+    except:
+        amount = 0
+    
+    prompt = f"""
+    Assess the risk level for this invoice processing:
+    
+    Invoice Analysis:
+    - Vendor: {invoice.get('vendor', 'Unknown')}
+    - Amount: ${amount:,.2f}
+    - Similar invoices in system: {len(similar_invoices)}
+    - Validation issues: {len(validation.get('issues', []))}
+    
+    Risk Factors to Consider:
+    - High amounts (>$10,000) = higher risk
+    - New/unknown vendors = higher risk
+    - Validation failures = higher risk
+    - No similar invoices = medium risk
+    - Many similar invoices = potential pattern
+    
+    Rate risk as: LOW, MEDIUM, or HIGH
+    Provide reasoning for your assessment.
+    
+    Format: RISK: [level] | ANALYSIS: [detailed reasoning]
+    """
+    
+    try:
+        risk_response = rag_engine.generate_answer(prompt, [])
+        
+        # Parse response
+        if "RISK:" in risk_response and "ANALYSIS:" in risk_response:
+            parts = risk_response.split("|")
+            risk_part = parts[0].replace("RISK:", "").strip().upper()
+            analysis_part = parts[1].replace("ANALYSIS:", "").strip() if len(parts) > 1 else risk_response
+        else:
+            # Fallback parsing
+            if "HIGH" in risk_response.upper():
+                risk_part = "HIGH"
+            elif "MEDIUM" in risk_response.upper():
+                risk_part = "MEDIUM"
+            else:
+                risk_part = "LOW"
+            analysis_part = risk_response
+        
+        # Validate risk level
+        if risk_part not in ["LOW", "MEDIUM", "HIGH"]:
+            risk_part = "MEDIUM"  # Safe default
+        
+        state["risk_level"] = risk_part
+        state["risk_analysis"] = analysis_part
+        state["requires_approval"] = risk_part in ["MEDIUM", "HIGH"]
+        
+    except Exception as e:
+        logger.exception("risk_assessment_node: LLM risk assessment failed, using fallback logic")
+        # Fallback risk assessment
+        if amount > 10000 or len(validation.get("issues", [])) > 0:
+            state["risk_level"] = "HIGH"
+            state["requires_approval"] = True
+        elif amount > 1000 or len(similar_invoices) == 0:
+            state["risk_level"] = "MEDIUM"
+            state["requires_approval"] = True
+        else:
+            state["risk_level"] = "LOW"
+            state["requires_approval"] = False
+        
+        state["risk_analysis"] = f"Fallback assessment: Amount=${amount:,.2f}, Issues={len(validation.get('issues', []))}"
+    
+    logger.debug(f"risk_assessment_node: Risk={state['risk_level']}, Approval Required={state['requires_approval']}")
+    return state
+
+def escalation_decision_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    LLM decides if human intervention is needed
+    Produces: state["escalate_to_human"], state["escalation_reason"], state["priority_level"]
+    """
+    risk_level = state.get("risk_level", "MEDIUM")
+    validation = state.get("validation", {})
+    is_duplicate = state.get("is_duplicate", False)
+    next_action = state.get("next_action", "APPROVE")
+    invoice = state.get("invoice", {})
+    
+    prompt = f"""
+    Determine if this invoice requires human escalation:
+    
+    Current Status:
+    - Risk Level: {risk_level}
+    - Recommended Action: {next_action}
+    - Validation Issues: {validation.get('issues', [])}
+    - Is Duplicate: {is_duplicate}
+    - Invoice Amount: {invoice.get('total_amount', 'N/A')}
+    - Vendor: {invoice.get('vendor', 'N/A')}
+    
+    Escalation Criteria:
+    - HIGH risk always escalates
+    - REJECT actions need human confirmation
+    - Complex validation issues
+    - Large amounts (>$5,000)
+    - New vendor patterns
+    
+    Also assign priority: URGENT, HIGH, NORMAL, LOW
+    
+    Should this be escalated to a human? Respond YES or NO with reasoning.
+    
+    Format: ESCALATE: [YES/NO] | PRIORITY: [level] | REASON: [explanation]
+    """
+    
+    try:
+        escalation_response = rag_engine.generate_answer(prompt, [])
+        
+        # Parse response
+        escalate = "NO"
+        priority = "NORMAL"
+        reason = escalation_response
+        
+        if "ESCALATE:" in escalation_response:
+            parts = escalation_response.split("|")
+            escalate_part = parts[0].replace("ESCALATE:", "").strip().upper()
+            escalate = "YES" if "YES" in escalate_part else "NO"
+            
+            if len(parts) > 1 and "PRIORITY:" in parts[1]:
+                priority_part = parts[1].replace("PRIORITY:", "").strip().upper()
+                if priority_part in ["URGENT", "HIGH", "NORMAL", "LOW"]:
+                    priority = priority_part
+            
+            if len(parts) > 2 and "REASON:" in parts[2]:
+                reason = parts[2].replace("REASON:", "").strip()
+        else:
+            # Simple parsing
+            escalate = "YES" if "YES" in escalation_response.upper() else "NO"
+        
+        state["escalate_to_human"] = escalate == "YES"
+        state["escalation_reason"] = reason
+        state["priority_level"] = priority
+        
+    except Exception as e:
+        logger.exception("escalation_decision_node: LLM escalation decision failed, using fallback logic")
+        # Fallback escalation logic
+        should_escalate = (
+            risk_level == "HIGH" or 
+            next_action in ["REJECT", "MANUAL_REVIEW"] or
+            is_duplicate or
+            len(validation.get("issues", [])) > 2
+        )
+        
+        state["escalate_to_human"] = should_escalate
+        state["escalation_reason"] = f"Fallback: Risk={risk_level}, Action={next_action}, Issues={len(validation.get('issues', []))}"
+        state["priority_level"] = "HIGH" if should_escalate else "NORMAL"
+    
+    logger.debug(f"escalation_decision_node: Escalate={state['escalate_to_human']}, Priority={state['priority_level']}")
     return state

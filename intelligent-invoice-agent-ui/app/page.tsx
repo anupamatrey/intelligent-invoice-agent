@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 type Screen = 'upload' | 'processing' | 'results';
 type WorkflowStep = 'ocr' | 'validation' | 'rag';
+type Tab = 'analysis' | 'vectordb';
 
 interface InvoiceData {
   invoiceNumber: string;
@@ -25,13 +26,26 @@ interface Results {
   recommendation?: string;
 }
 
+interface VectorDBItem {
+  id: string;
+  content_preview: string;
+  metadata: {
+    hash: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
 export default function InvoiceQA() {
+  const [activeTab, setActiveTab] = useState<Tab>('analysis');
   const [screen, setScreen] = useState<Screen>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('ocr');
   const [results, setResults] = useState<Results | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [vectorDBData, setVectorDBData] = useState<VectorDBItem[]>([]);
+  const [loadingVectorDB, setLoadingVectorDB] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -156,6 +170,93 @@ export default function InvoiceQA() {
     }
   };
 
+  const fetchVectorDBData = async () => {
+    setLoadingVectorDB(true);
+    try {
+      console.log('Fetching Vector DB data from:', 'http://localhost:8000/vector-db/invoices');
+      const response = await fetch('http://localhost:8000/vector-db/invoices', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors'
+      });
+      console.log('Vector DB Response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Vector DB Response data:', data);
+        console.log('Data type:', typeof data, 'Is array:', Array.isArray(data));
+        
+        // Handle different response formats
+        if (Array.isArray(data)) {
+          setVectorDBData(data);
+        } else if (data.invoices && Array.isArray(data.invoices)) {
+          setVectorDBData(data.invoices);
+        } else if (data.data && Array.isArray(data.data)) {
+          setVectorDBData(data.data);
+        } else {
+          console.error('Unexpected data format:', data);
+          setVectorDBData([]);
+        }
+      } else {
+        console.error('Vector DB API error:', response.status, response.statusText);
+        alert(`Failed to fetch data: ${response.status} ${response.statusText}`);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Vector DB data:', error);
+      alert(`Network error: ${error.message}`);
+    } finally {
+      setLoadingVectorDB(false);
+    }
+  };
+
+  const deleteVectorDBItem = async (invoiceId: string) => {
+    if (!confirm('Are you sure you want to delete this invoice?')) return;
+    try {
+      const response = await fetch(`http://localhost:8000/vector-db/invoice/${invoiceId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors'
+      });
+      if (response.ok) {
+        setVectorDBData(prev => prev.filter(item => item.id !== invoiceId));
+        alert('Invoice deleted successfully!');
+      }
+    } catch (error) {
+      console.error('Failed to delete invoice:', error);
+      alert('Failed to delete invoice.');
+    }
+  };
+
+  const clearAllVectorDB = async () => {
+    if (!confirm('Are you sure you want to clear ALL invoices from the database? This action cannot be undone.')) return;
+    try {
+      const response = await fetch('http://localhost:8000/vector-db/clear?confirm=true', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors'
+      });
+      if (response.ok) {
+        setVectorDBData([]);
+        alert('All invoices cleared successfully!');
+      }
+    } catch (error) {
+      console.error('Failed to clear database:', error);
+      alert('Failed to clear database.');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'vectordb') {
+      fetchVectorDBData();
+    }
+  }, [activeTab]);
+
   const formatInsight = (text: string) => {
     return text.split('\n').map((line, idx) => {
       const boldMatch = line.match(/\*\*(.+?)\*\*:?(.*)/);
@@ -242,14 +343,39 @@ export default function InvoiceQA() {
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <header className="mb-8">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-3">Invoice Agent</h1>
           <p className="text-lg mb-2">Intelligent invoice processing powered by <span className="font-semibold text-purple-600">MCP Server</span>, <span className="font-semibold text-blue-600">RAG</span>, and <span className="font-semibold text-indigo-600">AI</span></p>
           <p className="text-slate-600 text-sm">Upload your invoice and let our AI extract data, validate information, and generate insights automatically</p>
         </header>
 
-        {screen === 'upload' && (
+        <div className="mb-8">
+          <div className="flex space-x-1 bg-white rounded-lg p-1 shadow-sm">
+            <button
+              onClick={() => setActiveTab('analysis')}
+              className={`flex-1 py-3 px-6 rounded-md font-semibold transition-all ${
+                activeTab === 'analysis'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
+              }`}
+            >
+              Invoice Analysis
+            </button>
+            <button
+              onClick={() => setActiveTab('vectordb')}
+              className={`flex-1 py-3 px-6 rounded-md font-semibold transition-all ${
+                activeTab === 'vectordb'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
+              }`}
+            >
+              Vector DB Management
+            </button>
+          </div>
+        </div>
+
+        {activeTab === 'analysis' && screen === 'upload' && (
           <div className="bg-white rounded-2xl shadow-lg p-8">
             <h2 className="text-2xl font-semibold text-slate-800 mb-6">Upload Invoice</h2>
             
@@ -304,7 +430,7 @@ export default function InvoiceQA() {
           </div>
         )}
 
-        {screen === 'processing' && (
+        {activeTab === 'analysis' && screen === 'processing' && (
           <div className="bg-white rounded-2xl shadow-lg p-8">
             <h2 className="text-2xl font-semibold text-slate-800 mb-6">Processing Invoice</h2>
             
@@ -343,7 +469,7 @@ export default function InvoiceQA() {
           </div>
         )}
 
-        {screen === 'results' && results && (
+        {activeTab === 'analysis' && screen === 'results' && results && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-white rounded-2xl shadow-lg p-8">
@@ -411,14 +537,29 @@ export default function InvoiceQA() {
                     <p className="text-red-800 font-medium">{results.synthesis}</p>
                   </div>
                   {results.duplicateDetails && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <h4 className="text-red-700 font-semibold mb-2">Duplicate Details:</h4>
-                      <div className="text-sm text-red-700 space-y-1">
-                        <p><strong>Similarity Score:</strong> {results.duplicateDetails.similarity_score}</p>
-                        <p><strong>Content:</strong> {results.duplicateDetails.duplicate_content}</p>
-                        {results.duplicateDetails.metadata?.hash && (
-                          <p><strong>Hash:</strong> {results.duplicateDetails.metadata.hash}</p>
-                        )}
+                    <div className="space-y-3">
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <h4 className="text-orange-700 font-semibold mb-2 flex items-center gap-2">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          Similarity Analysis
+                        </h4>
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-orange-600 mb-1">
+                            {(results.duplicateDetails.similarity_score * 100).toFixed(1)}%
+                          </div>
+                          <div className="text-sm text-orange-600">Match Confidence</div>
+                        </div>
+                      </div>
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <h4 className="text-red-700 font-semibold mb-2">Duplicate Details:</h4>
+                        <div className="text-sm text-red-700 space-y-1">
+                          <p><strong>Content:</strong> {results.duplicateDetails.duplicate_content}</p>
+                          {results.duplicateDetails.metadata?.hash && (
+                            <p><strong>Hash:</strong> {results.duplicateDetails.metadata.hash}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -484,6 +625,129 @@ export default function InvoiceQA() {
                 </pre>
               </details>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'vectordb' && (
+          <div className="bg-white rounded-2xl shadow-lg p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-slate-800">Vector Database Management</h2>
+              <div className="flex gap-3">
+                <button
+                  onClick={fetchVectorDBData}
+                  disabled={loadingVectorDB}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-slate-400 transition-all flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {loadingVectorDB ? 'Loading...' : 'Refresh'}
+                </button>
+                <button
+                  onClick={clearAllVectorDB}
+                  disabled={loadingVectorDB || vectorDBData.length === 0}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:bg-slate-400 transition-all flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Clear All
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div className="bg-white p-4 rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-blue-600">{vectorDBData.length}</div>
+                  <div className="text-sm text-slate-600">Total Invoices</div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-green-600">
+                    {vectorDBData.length}
+                  </div>
+                  <div className="text-sm text-slate-600">Active Invoices</div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {new Set(vectorDBData.map(item => item.metadata?.hash)).size}
+                  </div>
+                  <div className="text-sm text-slate-600">Unique Hashes</div>
+                </div>
+              </div>
+            </div>
+
+            {loadingVectorDB ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-3 text-slate-600">Loading vector database...</span>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {vectorDBData.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <svg className="w-16 h-16 mx-auto mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                    </svg>
+                    <p className="text-lg font-medium">No data found</p>
+                    <p className="text-sm">Vector database is empty</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50">
+                          <th className="text-left p-3 border-b font-semibold text-slate-700">Invoice ID</th>
+                          <th className="text-left p-3 border-b font-semibold text-slate-700">Content</th>
+                          <th className="text-left p-3 border-b font-semibold text-slate-700">Status</th>
+                          <th className="text-left p-3 border-b font-semibold text-slate-700">Created</th>
+                          <th className="text-center p-3 border-b font-semibold text-slate-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vectorDBData.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="p-3 border-b">
+                              <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded">{item.id}</span>
+                            </td>
+                            <td className="p-3 border-b max-w-md">
+                              <div className="truncate text-slate-800">{item.content_preview}</div>
+                              {item.metadata && (
+                                <details className="mt-1">
+                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">Hash: {item.metadata.hash}</summary>
+                                  <pre className="mt-1 bg-slate-50 p-2 rounded text-xs overflow-x-auto max-h-32">
+                                    {JSON.stringify(item.metadata, null, 2)}
+                                  </pre>
+                                </details>
+                              )}
+                            </td>
+                            <td className="p-3 border-b">
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                Active
+                              </span>
+                            </td>
+                            <td className="p-3 border-b text-sm text-slate-600">
+                              N/A
+                            </td>
+                            <td className="p-3 border-b text-center">
+                              <button
+                                onClick={() => deleteVectorDBItem(item.id)}
+                                className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition-colors text-sm font-medium flex items-center gap-1 mx-auto"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
