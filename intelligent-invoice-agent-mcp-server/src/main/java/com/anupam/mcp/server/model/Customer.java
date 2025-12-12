@@ -1,0 +1,37 @@
+package com.anupam.mcp.server.model;
+
+public class Customer {
+
+    private String id;
+    private String name;
+    private String email;
+    private String city;
+    private double balance;
+
+    public Customer() {}
+
+    public Customer(String id, String name, String email, String city, double balance) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.city = city;
+        this.balance = balance;
+    }
+
+    // getters & setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getCity() { return city; }
+    public void setCity(String city) { this.city = city; }
+
+    public double getBalance() { return balance; }
+    public void setBalance(double balance) { this.balance = balance; }
+}
+

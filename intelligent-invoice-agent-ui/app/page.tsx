@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 
 type Screen = 'upload' | 'processing' | 'results';
 type WorkflowStep = 'ocr' | 'validation' | 'rag';
-type Tab = 'analysis' | 'vectordb';
+type Tab = 'analysis' | 'vectordb' | 'stream';
 
 interface InvoiceData {
   invoiceNumber: string;
@@ -36,6 +36,14 @@ interface VectorDBItem {
   [key: string]: any;
 }
 
+interface StreamData {
+  id: string;
+  name: string;
+  email: string;
+  city: string;
+  balance: number;
+}
+
 export default function InvoiceQA() {
   const [activeTab, setActiveTab] = useState<Tab>('analysis');
   const [screen, setScreen] = useState<Screen>('upload');
@@ -46,6 +54,8 @@ export default function InvoiceQA() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [vectorDBData, setVectorDBData] = useState<VectorDBItem[]>([]);
   const [loadingVectorDB, setLoadingVectorDB] = useState(false);
+  const [streamData, setStreamData] = useState<StreamData[]>([]);
+  const [loadingStream, setLoadingStream] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,14 +84,14 @@ export default function InvoiceQA() {
       formData.append('file', file);
 
       console.log('Uploading file:', file.name);
-      console.log('API URL:', 'http://localhost:8080/api/v1/invoice-agent/upload');
+      console.log('API URL:', 'http://localhost:8081/api/v1/invoice-agent/upload');
 
       for (let i = 0; i < steps.length; i++) {
         setCurrentStep(steps[i]);
         setProgress((i * 100) / 3);
       }
 
-      const response = await fetch('http://localhost:8080/api/v1/invoice-agent/upload', {
+      const response = await fetch('http://localhost:8081/api/v1/invoice-agent/upload', {
         method: 'POST',
         body: formData
       });
@@ -123,6 +133,11 @@ export default function InvoiceQA() {
         recommendation
       });
       setScreen('results');
+      
+      // Refresh Vector DB data if on vectordb tab
+      if (activeTab === 'vectordb') {
+        fetchVectorDBData();
+      }
     } catch (error) {
       console.error('Error processing invoice:', error);
       alert(`Failed to process invoice: ${error}`);
@@ -214,6 +229,7 @@ export default function InvoiceQA() {
   const deleteVectorDBItem = async (invoiceId: string) => {
     if (!confirm('Are you sure you want to delete this invoice?')) return;
     try {
+      console.log('Deleting invoice:', invoiceId);
       const response = await fetch(`http://localhost:8000/vector-db/invoice/${invoiceId}`, {
         method: 'DELETE',
         headers: {
@@ -221,9 +237,14 @@ export default function InvoiceQA() {
         },
         mode: 'cors'
       });
+      console.log('Delete response status:', response.status);
       if (response.ok) {
         setVectorDBData(prev => prev.filter(item => item.id !== invoiceId));
         alert('Invoice deleted successfully!');
+      } else {
+        const errorText = await response.text();
+        console.error('Delete failed:', response.status, errorText);
+        alert(`Failed to delete: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to delete invoice:', error);
@@ -232,7 +253,15 @@ export default function InvoiceQA() {
   };
 
   const clearAllVectorDB = async () => {
-    if (!confirm('Are you sure you want to clear ALL invoices from the database? This action cannot be undone.')) return;
+    console.log('Clear All button clicked');
+    if (!confirm('Are you sure you want to clear ALL invoices from the database? This action cannot be undone.')) {
+      console.log('Clear operation cancelled by user');
+      return;
+    }
+    
+    console.log('Clearing all invoices from vector database');
+    console.log('Making request to:', 'http://localhost:8000/vector-db/clear?confirm=true');
+    
     try {
       const response = await fetch('http://localhost:8000/vector-db/clear?confirm=true', {
         method: 'DELETE',
@@ -241,20 +270,93 @@ export default function InvoiceQA() {
         },
         mode: 'cors'
       });
+      
+      console.log('Clear response received');
+      console.log('Clear response status:', response.status);
+      console.log('Clear response ok:', response.ok);
+      
       if (response.ok) {
+        const responseData = await response.json();
+        console.log('Clear response data:', responseData);
         setVectorDBData([]);
+        console.log('Database cleared successfully');
         alert('All invoices cleared successfully!');
+        // Refresh data to confirm clearing
+        fetchVectorDBData();
+      } else {
+        const errorText = await response.text();
+        console.error('Clear failed:', response.status, errorText);
+        alert(`Failed to clear database: ${response.status}`);
       }
     } catch (error) {
-      console.error('Failed to clear database:', error);
-      alert('Failed to clear database.');
+      console.error('Failed to clear database - Network error:', error);
+      console.error('Error details:', error.message, error.stack);
+      alert(`Failed to clear database: ${error.message}`);
     }
   };
 
+  const connectToSSE = () => {
+    console.log('Connecting to SSE:', 'http://localhost:8081/api/v1/stream');
+    const eventSource = new EventSource('http://localhost:8081/api/v1/stream');
+    
+    eventSource.onopen = () => {
+      console.log('SSE connection opened');
+      setLoadingStream(false);
+    };
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setStreamData(prev => {
+          const exists = prev.find(item => item.id === data.id);
+          if (exists) {
+            console.log('Updating existing record:', data.id);
+            return prev.map(item => item.id === data.id ? data : item);
+          } else {
+            console.log('Adding new record:', data.id);
+            return [...prev, data];
+          }
+        });
+      } catch (error) {
+        console.error('Error parsing SSE data:', error, 'Raw data:', event.data);
+      }
+    };
+    
+    // Listen for any custom events
+    eventSource.addEventListener('data', (event) => {
+      console.log('SSE custom data event:', event);
+    });
+    
+    eventSource.onerror = (error) => {
+      console.error('SSE error:', error);
+      console.log('EventSource readyState:', eventSource.readyState);
+      setLoadingStream(false);
+    };
+    
+    return eventSource;
+  };
+
+  // Load Vector DB data when switching to vectordb tab
   useEffect(() => {
     if (activeTab === 'vectordb') {
       fetchVectorDBData();
     }
+  }, [activeTab]);
+
+  // Connect to SSE when stream tab is active
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    if (activeTab === 'stream') {
+      console.log('Stream tab activated, connecting to SSE');
+      setLoadingStream(true);
+      eventSource = connectToSSE();
+    }
+    return () => {
+      if (eventSource) {
+        console.log('Closing SSE connection');
+        eventSource.close();
+      }
+    };
   }, [activeTab]);
 
   const formatInsight = (text: string) => {
@@ -371,6 +473,16 @@ export default function InvoiceQA() {
               }`}
             >
               Vector DB Management
+            </button>
+            <button
+              onClick={() => setActiveTab('stream')}
+              className={`flex-1 py-3 px-6 rounded-md font-semibold transition-all ${
+                activeTab === 'stream'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
+              }`}
+            >
+              Stream Transport MCP Server
             </button>
           </div>
         </div>
@@ -644,8 +756,11 @@ export default function InvoiceQA() {
                   {loadingVectorDB ? 'Loading...' : 'Refresh'}
                 </button>
                 <button
-                  onClick={clearAllVectorDB}
-                  disabled={loadingVectorDB || vectorDBData.length === 0}
+                  onClick={() => {
+                    console.log('Clear All button clicked - handler called');
+                    clearAllVectorDB();
+                  }}
+                  disabled={loadingVectorDB}
                   className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-700 disabled:bg-slate-400 transition-all flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -731,8 +846,14 @@ export default function InvoiceQA() {
                             </td>
                             <td className="p-3 border-b text-center">
                               <button
-                                onClick={() => deleteVectorDBItem(item.id)}
-                                className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition-colors text-sm font-medium flex items-center gap-1 mx-auto"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  console.log('Delete button clicked for:', item.id);
+                                  deleteVectorDBItem(item.id);
+                                }}
+                                className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition-colors text-sm font-medium inline-flex items-center gap-1 cursor-pointer"
+                                type="button"
                               >
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -748,6 +869,84 @@ export default function InvoiceQA() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'stream' && (
+          <div className="bg-white rounded-2xl shadow-lg p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-slate-800">Stream Transport MCP Server</h2>
+              <div className="flex items-center gap-2">
+                {loadingStream && (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                )}
+                <span className="text-sm text-slate-500">Auto-refresh every 10s</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-slate-50">
+                    <th className="text-left p-3 border-b font-semibold text-slate-700">ID</th>
+                    <th className="text-left p-3 border-b font-semibold text-slate-700">Name</th>
+                    <th className="text-left p-3 border-b font-semibold text-slate-700">Email</th>
+                    <th className="text-left p-3 border-b font-semibold text-slate-700">City</th>
+                    <th className="text-right p-3 border-b font-semibold text-slate-700">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {streamData.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-12 text-slate-500">
+                        <div className="flex flex-col items-center">
+                          <svg className="w-16 h-16 mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <p className="text-lg font-medium">No stream data available</p>
+                          <p className="text-sm">Waiting for data from stream API...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    streamData.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-3 border-b">
+                          <span className="font-mono text-sm bg-slate-100 px-2 py-1 rounded">{item.id}</span>
+                        </td>
+                        <td className="p-3 border-b font-medium text-slate-800">{item.name}</td>
+                        <td className="p-3 border-b text-slate-600">{item.email}</td>
+                        <td className="p-3 border-b text-slate-600">{item.city}</td>
+                        <td className="p-3 border-b text-right">
+                          <span className="font-semibold text-green-600">${item.balance.toFixed(2)}</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 p-4 bg-slate-50 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div className="bg-white p-4 rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-blue-600">{streamData.length}</div>
+                  <div className="text-sm text-slate-600">Total Records</div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-green-600">
+                    ${streamData.reduce((sum, item) => sum + item.balance, 0).toFixed(2)}
+                  </div>
+                  <div className="text-sm text-slate-600">Total Balance</div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {new Set(streamData.map(item => item.city)).size}
+                  </div>
+                  <div className="text-sm text-slate-600">Unique Cities</div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 package com.anupam.mcp.server.service;
 
 import com.anupam.mcp.server.tools.ExtractInvoice;
+import com.anupam.mcp.server.tools.StreamData;
 import com.anupam.mcp.server.tools.ValidateInvoice;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,10 +18,11 @@ public class McpToolRegistry {
     private final Map<String, Function<String, Flux<String>>> tools = new HashMap<>();
 
 
-    public McpToolRegistry(ExtractInvoice extractInvoice, ValidateInvoice validateInvoice) {
+    public McpToolRegistry(ExtractInvoice extractInvoice, ValidateInvoice validateInvoice, StreamData streamData) {
         // Register tools dynamically
         tools.put("extractInvoice", extractInvoice::uploadInvoice);
         tools.put("validateInvoice", validateInvoice::validateInvoice);
+        tools.put("streamCustomerData", streamData::streamCustomerData);
     }
 
     /**

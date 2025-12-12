@@ -1,0 +1,7 @@
+services:
+  invoice-agent:
+    build: .
+    ports:
+      - "8081:8080"
+    environment:
+      - python.api.url=http://host.docker.internal:8000/process-invoice

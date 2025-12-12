@@ -2,29 +2,64 @@ package com.anupam.mcp.server.controller;
 
 
 import com.anupam.mcp.server.service.ExtractInvoiceService;
+import com.anupam.mcp.server.service.RandomDataGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api/v1")
+@CrossOrigin(origins = {"http://localhost:3000", "http://127.0.0.1:3000"})
 public class InvoiceAgentController {
     private static final Logger LOG = LoggerFactory.getLogger(InvoiceAgentController.class);
 
     private final ExtractInvoiceService extractInvoiceService;
+    private final RandomDataGenerator randomDataGenerator;
     private final ObjectMapper objectMapper;
 
-    public InvoiceAgentController(ExtractInvoiceService extractInvoiceService, ObjectMapper objectMapper) {
+    public InvoiceAgentController(ExtractInvoiceService extractInvoiceService, RandomDataGenerator randomDataGenerator, ObjectMapper objectMapper) {
         this.extractInvoiceService = extractInvoiceService;
+        this.randomDataGenerator = randomDataGenerator;
         this.objectMapper = objectMapper;
+    }
+
+    @GetMapping("/test")
+    public Map<String, Object> test() {
+        LOG.info("Test endpoint called");
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("message", "Invoice Agent API is running");
+        response.put("timestamp", System.currentTimeMillis());
+        return response;
+    }
+
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @CrossOrigin(origins = {"http://localhost:3000", "http://127.0.0.1:3000"}, allowedHeaders = "*")
+    public Flux<ServerSentEvent<String>> streamData() {
+        LOG.info("SSE stream endpoint called - using RandomDataGenerator");
+        return randomDataGenerator.stream()
+                .doOnNext(data -> LOG.info("Streaming data to client: {}", data))
+                .map(customerJson -> ServerSentEvent.<String>builder()
+                        .data(customerJson)
+                        .build())
+                .doOnSubscribe(subscription -> LOG.info("Client subscribed to stream"))
+                .doOnCancel(() -> LOG.info("Client cancelled stream subscription"));
     }
 
     @PostMapping("/invoice-agent/upload")

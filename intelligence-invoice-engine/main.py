@@ -25,9 +25,9 @@ logger.info("FastAPI app initialized")
 # Add CORS middleware for UI integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -129,8 +129,10 @@ rag_engine = RAGEngine()
 @app.get("/vector-db/status")
 async def get_vector_db_status():
     """Get vector database status and statistics"""
+    logger.info("GET /vector-db/status - Getting database status")
     try:
         status = rag_engine.get_database_status()
+        logger.info(f"Database status retrieved: {status.get('total_documents', 0)} documents")
         return status
     except Exception as e:
         logger.error(f"Error getting database status: {str(e)}", exc_info=True)
@@ -142,15 +144,18 @@ async def get_vector_db_status():
 @app.delete("/vector-db/clear")
 async def clear_vector_db(confirm: bool = Query(False)):
     """Clear all documents from vector database (requires confirmation)"""
+    logger.info(f"DELETE /vector-db/clear - Confirm: {confirm}")
     try:
         if not confirm:
+            logger.warning("Clear database request without confirmation")
             return JSONResponse(
                 content={"error": "Confirmation required. Use ?confirm=true"},
                 status_code=400
             )
         
+        logger.info("Clearing vector database...")
         result = rag_engine.clear_database()
-        logger.info(f"Vector database cleared: {result}")
+        logger.info(f"Vector database cleared successfully: {result}")
         return result
     except Exception as e:
         logger.error(f"Error clearing database: {str(e)}", exc_info=True)
@@ -162,8 +167,11 @@ async def clear_vector_db(confirm: bool = Query(False)):
 @app.get("/vector-db/invoices")
 async def list_invoices():
     """List all stored invoices with metadata"""
+    logger.info("GET /vector-db/invoices - Listing all invoices")
     try:
         result = rag_engine.list_invoices()
+        invoice_count = result.get('total_invoices', 0)
+        logger.info(f"Retrieved {invoice_count} invoices from database")
         return result
     except Exception as e:
         logger.error(f"Error listing invoices: {str(e)}", exc_info=True)
@@ -175,12 +183,13 @@ async def list_invoices():
 @app.delete("/vector-db/invoice/{invoice_id}")
 async def delete_invoice(invoice_id: str):
     """Delete specific invoice by ID"""
+    logger.info(f"DELETE /vector-db/invoice/{invoice_id} - Deleting specific invoice")
     try:
         result = rag_engine.delete_invoice(invoice_id)
-        logger.info(f"Invoice deleted: {result}")
+        logger.info(f"Invoice {invoice_id} deleted successfully: {result}")
         return result
     except Exception as e:
-        logger.error(f"Error deleting invoice: {str(e)}", exc_info=True)
+        logger.error(f"Error deleting invoice {invoice_id}: {str(e)}", exc_info=True)
         return JSONResponse(
             content={"error": str(e)},
             status_code=500
