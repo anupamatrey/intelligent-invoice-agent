@@ -1,5 +1,13 @@
 package com.anupam.mcp.server.model;
 
+/**
+ * Represents a customer entity used in streaming/demo data.
+ *
+ * <p>Contains basic customer attributes such as name, email, city, and balance.</p>
+ *
+ * @author Anupam Sharma
+ * @since 1.0
+ */
 public class Customer {
 
     private String id;
@@ -8,8 +16,20 @@ public class Customer {
     private String city;
     private double balance;
 
+    /**
+     * Creates an empty customer instance.
+     */
     public Customer() {}
 
+    /**
+     * Creates a populated customer instance.
+     *
+     * @param id      unique identifier
+     * @param name    full name
+     * @param email   email address
+     * @param city    city of residence
+     * @param balance current account balance
+     */
     public Customer(String id, String name, String email, String city, double balance) {
         this.id = id;
         this.name = name;

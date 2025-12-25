@@ -96,7 +96,7 @@ pip install -r requirements.txt
 
 ### Step 4: Configure Environment Variables
 
-Create/update `.env` file with your API keys:
+Create/update `.env` file with your API keys and Kafka configuration:
 
 ```env
 # Groq API for LLM (Get from: https://console.groq.com/keys)
@@ -104,6 +104,17 @@ GROQ_API_KEY=your_groq_api_key_here
 
 # Optional: Google API for embeddings (or use HuggingFace - free)
 GOOGLE_API_KEY=your_google_api_key_here
+
+# Aiven Kafka Configuration
+KAFKA_BOOTSTRAP_SERVERS=your-kafka-service.aivencloud.com:port
+KAFKA_USERNAME=your_kafka_username
+KAFKA_PASSWORD=your_kafka_password
+KAFKA_SECURITY_PROTOCOL=SASL_SSL
+KAFKA_SASL_MECHANISM=SCRAM-SHA-256
+
+# Kafka Topics
+KAFKA_INVOICE_TOPIC=invoice-processing-results
+KAFKA_NOTIFICATION_TOPIC=invoice-notifications
 ```
 
 ### Step 5: Run the API Server
@@ -132,15 +143,34 @@ POST http://localhost:8000/ocr/extract
 ```
 Extracts invoice data only (no AI processing)
 
-#### 3. Autonomous Agent Workflow
+#### 3. Autonomous Agent Workflow (File Upload)
 ```
 POST http://localhost:8000/process-invoice
 ```
 Intelligent agent workflow: Extract → Validate → Embed → Duplicate Check → **AI Decision** → **Risk Assessment** → Store → Analyze → **Escalation Decision** → AI Summary
 
+#### 4. Autonomous Agent Workflow (Direct Data)
+```
+POST http://localhost:8000/process-invoice-data
+```
+**Purpose:** Process pre-extracted invoice data (skip OCR step)  
+**Why Useful:** When consumer already processed XLS file and extracted invoice data  
+**Workflow:** Validate → Embed → Duplicate Check → **AI Decision** → **Risk Assessment** → Store → Analyze → **Escalation Decision** → AI Summary → **Kafka Publish**
+
+**Request Body:**
+```json
+{
+  "invoice_number": "INV-2024-001",
+  "vendor": "ABC Corporation",
+  "date": "01/15/2024",
+  "total_amount": "1,250.00",
+  "raw_text": "INV-2024-001 ABC Corporation 01/15/2024 1,250.00 Professional Services"
+}
+```
+
 ### Vector Database Management Endpoints
 
-#### 4. Database Status
+#### 5. Database Status
 ```
 GET http://localhost:8000/vector-db/status
 ```
@@ -151,7 +181,7 @@ GET http://localhost:8000/vector-db/status
 - Monitor storage usage for capacity planning
 - Debug issues with duplicate detection
 
-#### 5. List All Invoices
+#### 6. List All Invoices
 ```
 GET http://localhost:8000/vector-db/invoices
 ```
@@ -162,7 +192,7 @@ GET http://localhost:8000/vector-db/invoices
 - Debug duplicate detection issues
 - Compliance reporting and data governance
 
-#### 6. Clear All Data
+#### 7. Clear All Data
 ```
 DELETE http://localhost:8000/vector-db/clear?confirm=true
 ```
@@ -173,7 +203,7 @@ DELETE http://localhost:8000/vector-db/clear?confirm=true
 - Remove test data before going live
 - Reset after data corruption or migration
 
-#### 7. Delete Specific Invoice
+#### 8. Delete Specific Invoice
 ```
 DELETE http://localhost:8000/vector-db/invoice/{invoice_id}
 ```
@@ -190,10 +220,27 @@ DELETE http://localhost:8000/vector-db/invoice/{invoice_id}
 
 ### Option 1: Interactive API Docs (Recommended)
 
+**Test File Upload:**
 1. Open browser: `http://localhost:8000/docs`
 2. Click on `/process-invoice`
 3. Click "Try it out"
 4. Upload `sample_invoice.xlsx`
+5. Click "Execute"
+
+**Test Direct Data:**
+1. Open browser: `http://localhost:8000/docs`
+2. Click on `/process-invoice-data`
+3. Click "Try it out"
+4. Use sample JSON:
+```json
+{
+  "invoice_number": "INV-2024-001",
+  "vendor": "ABC Corporation",
+  "date": "01/15/2024",
+  "total_amount": "1,250.00",
+  "raw_text": "INV-2024-001 ABC Corporation 01/15/2024 1,250.00 Professional Services"
+}
+```
 5. Click "Execute"
 
 ### Option 2: Using PowerShell
@@ -303,8 +350,16 @@ python test_api.py
 - **Escalation Logic:** Considers risk level, action type, and complexity
 - **Smart Routing:** Ensures critical issues reach humans while automating routine tasks
 
-### Step 11: Agent Response
-**Returns complete JSON with autonomous decisions, risk assessment, and escalation recommendations**
+### Step 11: 📤 Kafka Message Publishing
+**File:** `kafka_producer.py` → `InvoiceKafkaProducer`
+
+- **Message Streaming:** Publishes processing results to Aiven Kafka
+- **Enterprise Integration:** Enables real-time event streaming to downstream systems
+- **Reliable Delivery:** Production-ready with retries, error handling, and monitoring
+- **Spring Boot Ready:** Formatted for consumption by Spring Boot microservices
+
+### Step 12: Agent Response
+**Returns complete JSON with autonomous decisions, risk assessment, escalation recommendations, and Kafka delivery status**
 
 ---
 
@@ -440,6 +495,9 @@ intelligence-invoice-engine/
 
 ### **Groq** - LLM Inference
 **Why:** Fastest LLM inference available (10x faster than OpenAI). Cost-effective with excellent reasoning capabilities for business logic.
+
+### **Aiven Kafka** - Message Streaming
+**Why:** Enterprise-grade managed Kafka service with built-in security, monitoring, and scaling. Enables real-time event streaming and microservices integration.
 
 ### **Pydantic** - Data Validation
 **Why:** Type-safe data validation with automatic serialization. Prevents runtime errors and ensures data integrity throughout the pipeline.

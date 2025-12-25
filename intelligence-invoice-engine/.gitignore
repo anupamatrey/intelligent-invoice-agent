@@ -33,6 +33,9 @@ Thumbs.db
 *.sqlite
 chroma_store/
 
-# Excel temp files
-~$*.xlsx
-~$*.xls
+# SSL Certificates
+*.pem
+*.crt
+*.key
+ca.pem
+certs/

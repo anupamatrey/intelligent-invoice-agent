@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Invoice Updates - Real-time</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+</head>
+<body>
+    <h1>Real-time Invoice Updates</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+
+    <script>
+        const socket = new SockJS('http://localhost:8081/ws-invoice');
+        const stompClient = Stomp.over(socket);
+
+        stompClient.connect({}, function(frame) {
+            document.getElementById('status').innerHTML = '✅ Connected';
+            console.log('Connected: ' + frame);
+
+            // Subscribe to invoice updates
+            stompClient.subscribe('/topic/invoice-updates', function(message) {
+                const invoice = JSON.parse(message.body);
+                console.log('Received invoice:', invoice);
+                
+                const messagesDiv = document.getElementById('messages');
+                const messageElement = document.createElement('div');
+                messageElement.innerHTML = `
+                    <hr>
+                    <strong>New Invoice Update:</strong><br>
+                    <pre>${JSON.stringify(invoice, null, 2)}</pre>
+                `;
+                messagesDiv.appendChild(messageElement);
+            });
+        }, function(error) {
+            document.getElementById('status').innerHTML = '❌ Disconnected';
+            console.error('Error:', error);
+        });
+    </script>
+</body>
+</html>

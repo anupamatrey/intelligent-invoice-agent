@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 
 type Screen = 'upload' | 'processing' | 'results';
 type WorkflowStep = 'ocr' | 'validation' | 'rag';
-type Tab = 'analysis' | 'vectordb' | 'stream';
+type Tab = 'processing' | 'vectordb' | 'stream';
+type ProcessingSubTab = 'manual' | 'automated';
 
 interface InvoiceData {
   invoiceNumber: string;
@@ -45,7 +46,8 @@ interface StreamData {
 }
 
 export default function InvoiceQA() {
-  const [activeTab, setActiveTab] = useState<Tab>('analysis');
+  const [activeTab, setActiveTab] = useState<Tab>('processing');
+  const [activeProcessingTab, setActiveProcessingTab] = useState<ProcessingSubTab>('manual');
   const [screen, setScreen] = useState<Screen>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
@@ -56,7 +58,135 @@ export default function InvoiceQA() {
   const [loadingVectorDB, setLoadingVectorDB] = useState(false);
   const [streamData, setStreamData] = useState<StreamData[]>([]);
   const [loadingStream, setLoadingStream] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [emailInvoices, setEmailInvoices] = useState<Results[]>([]);
+  const [selectedEmailInvoice, setSelectedEmailInvoice] = useState<Results | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const connectToWebSocket = () => {
+    console.log('Connecting to SockJS:', 'http://localhost:8081/ws-invoice');
+    
+    // Try to connect to SockJS endpoint
+    const sockjsUrl = 'http://localhost:8081/ws-invoice/websocket';
+    console.log('Attempting WebSocket connection to:', sockjsUrl);
+    
+    const socket = new WebSocket('ws://localhost:8081/ws-invoice/websocket');
+    
+    socket.onopen = () => {
+      console.log('WebSocket connected, sending CONNECT frame');
+      setWsConnected(true);
+      
+      // Send STOMP CONNECT frame
+      socket.send('CONNECT\naccept-version:1.0,1.1,2.0\n\n\x00');
+    };
+    
+    socket.onmessage = (event) => {
+      try {
+        console.log('Raw STOMP message:', event.data);
+        
+        if (event.data.startsWith('CONNECTED')) {
+          console.log('STOMP connected, subscribing to /topic/invoice-updates');
+          socket.send('SUBSCRIBE\nid:sub-0\ndestination:/topic/invoice-updates\n\n\x00');
+          return;
+        }
+        
+        if (event.data.startsWith('MESSAGE')) {
+          const lines = event.data.split('\n');
+          let jsonData = '';
+          let foundEmptyLine = false;
+          
+          for (let i = 0; i < lines.length; i++) {
+            if (foundEmptyLine) {
+              jsonData += lines[i];
+            } else if (lines[i] === '') {
+              foundEmptyLine = true;
+            }
+          }
+          
+          jsonData = jsonData.replace(/\x00$/, '');
+          
+          console.log('Extracted JSON:', jsonData);
+          const data = JSON.parse(jsonData);
+          
+          const invoiceData = data.invoice_data || data;
+          if (invoiceData) {
+            const invoice = invoiceData.invoice || {};
+            const validation = invoiceData.validation || {};
+            const synthesis = invoiceData.synthesis || '';
+            const isDuplicate = invoiceData.is_duplicate || false;
+            const duplicateDetails = invoiceData.duplicate_details;
+            const nextAction = invoiceData.next_action;
+            
+            const emailInvoiceResult: Results = {
+              extractedData: {
+                invoiceNumber: invoice.invoice_number || 'N/A',
+                date: invoice.date || 'N/A',
+                vendor: invoice.vendor || 'N/A',
+                amount: invoice.total_amount || 'N/A',
+                items: []
+              },
+              validationPassed: validation.overall_ok ?? true,
+              ragInsights: synthesis ? [synthesis] : [],
+              fieldsValidated: validation.fields_validated || [],
+              rawJson: data,
+              isDuplicate,
+              synthesis,
+              duplicateDetails,
+              recommendation: nextAction
+            };
+            
+            setEmailInvoices(prev => [emailInvoiceResult, ...prev]);
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing STOMP message:', error);
+      }
+    };
+    
+    socket.onclose = (event) => {
+      console.log('WebSocket disconnected. Code:', event.code, 'Reason:', event.reason);
+      setWsConnected(false);
+    };
+    
+    socket.onerror = (error) => {
+      console.error('WebSocket error. Trying fallback connection...');
+      setWsConnected(false);
+      
+      // Try fallback connection without /websocket suffix
+      setTimeout(() => {
+        console.log('Attempting fallback connection');
+        const fallbackSocket = new WebSocket('ws://localhost:8081/ws-invoice');
+        
+        fallbackSocket.onopen = () => {
+          console.log('Fallback WebSocket connected');
+          setWsConnected(true);
+          fallbackSocket.send('CONNECT\naccept-version:1.0,1.1,2.0\n\n\x00');
+        };
+        
+        fallbackSocket.onmessage = socket.onmessage;
+        fallbackSocket.onclose = socket.onclose;
+        fallbackSocket.onerror = () => {
+          console.error('Both WebSocket connections failed');
+          setWsConnected(false);
+        };
+      }, 1000);
+    };
+    
+    return socket;
+  };
+
+  // Connect to WebSocket when automated processing tab is active
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    if (activeTab === 'processing' && activeProcessingTab === 'automated') {
+      ws = connectToWebSocket();
+    }
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [activeTab, activeProcessingTab]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
@@ -455,14 +585,14 @@ export default function InvoiceQA() {
         <div className="mb-8">
           <div className="flex space-x-1 bg-white rounded-lg p-1 shadow-sm">
             <button
-              onClick={() => setActiveTab('analysis')}
+              onClick={() => setActiveTab('processing')}
               className={`flex-1 py-3 px-6 rounded-md font-semibold transition-all ${
-                activeTab === 'analysis'
+                activeTab === 'processing'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
               }`}
             >
-              Invoice Analysis
+              Invoice Processing
             </button>
             <button
               onClick={() => setActiveTab('vectordb')}
@@ -487,9 +617,37 @@ export default function InvoiceQA() {
           </div>
         </div>
 
-        {activeTab === 'analysis' && screen === 'upload' && (
-          <div className="bg-white rounded-2xl shadow-lg p-8">
-            <h2 className="text-2xl font-semibold text-slate-800 mb-6">Upload Invoice</h2>
+        {activeTab === 'processing' && (
+          <div className="mb-6">
+            <div className="flex space-x-1 bg-slate-100 rounded-lg p-1 shadow-sm max-w-md">
+              <button
+                onClick={() => setActiveProcessingTab('manual')}
+                className={`flex-1 py-2 px-4 rounded-md font-medium transition-all text-sm ${
+                  activeProcessingTab === 'manual'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                Manual Upload
+              </button>
+              <button
+                onClick={() => setActiveProcessingTab('automated')}
+                className={`flex-1 py-2 px-4 rounded-md font-medium transition-all text-sm ${
+                  activeProcessingTab === 'automated'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                Email Integration
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'processing' && activeProcessingTab === 'manual' && screen === 'upload' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-lg p-8">
+              <h2 className="text-2xl font-semibold text-slate-800 mb-6">Upload Invoice</h2>
             
             <div
               onDrop={handleDrop}
@@ -539,10 +697,49 @@ export default function InvoiceQA() {
             >
               Start Processing
             </button>
+            </div>
+
+            {emailInvoices.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-lg p-8">
+                <h3 className="text-xl font-semibold text-slate-800 mb-4">Email Processed Invoices</h3>
+                <div className="space-y-4">
+                  {emailInvoices.map((invoice, idx) => (
+                    <div key={idx} className="border rounded-lg p-4 hover:bg-slate-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium text-slate-800">{invoice.extractedData.invoiceNumber}</span>
+                          <span className="text-slate-600">{invoice.extractedData.vendor}</span>
+                          <span className="font-semibold text-green-600">{invoice.extractedData.amount}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          {invoice.recommendation && (
+                            <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                              invoice.recommendation === 'REJECT' 
+                                ? 'bg-red-100 text-red-700' 
+                                : 'bg-green-100 text-green-700'
+                            }`}>
+                              {invoice.recommendation}
+                            </div>
+                          )}
+                          {invoice.isDuplicate && (
+                            <div className="px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-700">
+                              Duplicate
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {invoice.synthesis && (
+                        <p className="text-sm text-slate-600 mt-2">{invoice.synthesis}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {activeTab === 'analysis' && screen === 'processing' && (
+        {activeTab === 'processing' && activeProcessingTab === 'manual' && screen === 'processing' && (
           <div className="bg-white rounded-2xl shadow-lg p-8">
             <h2 className="text-2xl font-semibold text-slate-800 mb-6">Processing Invoice</h2>
             
@@ -581,7 +778,7 @@ export default function InvoiceQA() {
           </div>
         )}
 
-        {activeTab === 'analysis' && screen === 'results' && results && (
+        {activeTab === 'processing' && activeProcessingTab === 'manual' && screen === 'results' && results && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-white rounded-2xl shadow-lg p-8">
@@ -947,6 +1144,197 @@ export default function InvoiceQA() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'processing' && activeProcessingTab === 'automated' && (
+          <div className="bg-white rounded-2xl shadow-lg p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-slate-800">Email Processed Invoices</h2>
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <span className="text-sm text-slate-600">
+                  {wsConnected ? 'Real-time Integration Active' : 'Integration Offline'}
+                </span>
+              </div>
+            </div>
+
+            {emailInvoices.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <p className="text-lg font-medium">No email invoices received</p>
+                <p className="text-sm">Send invoices to your configured email to see them here</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {emailInvoices.map((invoice, idx) => (
+                  <div key={idx} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 space-y-6">
+                      <div className="bg-white rounded-2xl shadow-lg p-8">
+                        <div className="flex items-center justify-between mb-6">
+                          <h2 className="text-2xl font-semibold text-slate-800">Invoice Details</h2>
+                          <div className="flex gap-2">
+                            {invoice.recommendation && (
+                              <div className={`px-4 py-2 rounded-full font-semibold ${
+                                invoice.recommendation.toLowerCase().includes('approve') 
+                                  ? 'bg-green-100 text-green-700' 
+                                  : 'bg-red-100 text-red-700'
+                              }`}>
+                                {invoice.recommendation}
+                              </div>
+                            )}
+                            <div className={`px-4 py-2 rounded-full ${invoice.validationPassed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              {invoice.validationPassed ? '✓ Valid' : '✗ Invalid'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                          <div className="p-4 bg-slate-50 rounded-lg">
+                            <p className="text-sm text-slate-500 mb-1">Invoice Number</p>
+                            <p className="font-semibold text-slate-800">{invoice.extractedData.invoiceNumber}</p>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-lg">
+                            <p className="text-sm text-slate-500 mb-1">Date</p>
+                            <p className="font-semibold text-slate-800">{invoice.extractedData.date}</p>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-lg">
+                            <p className="text-sm text-slate-500 mb-1">Vendor</p>
+                            <p className="font-semibold text-slate-800">{invoice.extractedData.vendor}</p>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-lg">
+                            <p className="text-sm text-slate-500 mb-1">Total Amount</p>
+                            <p className="font-semibold text-slate-800">{invoice.extractedData.amount}</p>
+                          </div>
+                        </div>
+
+                        {invoice.extractedData.items.length > 0 && (
+                          <div>
+                            <p className="text-sm text-slate-500 mb-3">Line Items</p>
+                            <div className="space-y-2">
+                              {invoice.extractedData.items.map((item, itemIdx) => (
+                                <div key={itemIdx} className="flex justify-between p-3 bg-slate-50 rounded-lg">
+                                  <span className="text-slate-800">{item.description} (x{item.quantity})</span>
+                                  <span className="font-semibold text-slate-800">{item.price}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {invoice.isDuplicate && invoice.synthesis ? (
+                        <div className="bg-red-50 border-2 border-red-200 rounded-2xl shadow-lg p-8">
+                          <h3 className="text-xl font-semibold text-red-800 mb-4 flex items-center gap-2">
+                            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                            </svg>
+                            Duplicate Detection Alert
+                          </h3>
+                          <div className="bg-red-100 border border-red-300 rounded-lg p-4 mb-4">
+                            <p className="text-red-800 font-medium">{invoice.synthesis}</p>
+                          </div>
+                          {invoice.duplicateDetails && (
+                            <div className="space-y-3">
+                              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                <h4 className="text-orange-700 font-semibold mb-2 flex items-center gap-2">
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                  </svg>
+                                  Similarity Analysis
+                                </h4>
+                                <div className="text-center">
+                                  <div className="text-3xl font-bold text-orange-600 mb-1">
+                                    {(invoice.duplicateDetails.similarity_score * 100).toFixed(1)}%
+                                  </div>
+                                  <div className="text-sm text-orange-600">Match Confidence</div>
+                                </div>
+                              </div>
+                              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                                <h4 className="text-red-700 font-semibold mb-2">Duplicate Details:</h4>
+                                <div className="text-sm text-red-700 space-y-1">
+                                  <p><strong>Content:</strong> {invoice.duplicateDetails.duplicate_content}</p>
+                                  {invoice.duplicateDetails.metadata?.hash && (
+                                    <p><strong>Hash:</strong> {invoice.duplicateDetails.metadata.hash}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="bg-white rounded-2xl shadow-lg p-8">
+                          <h3 className="text-xl font-semibold text-slate-800 mb-4">AI Insights & Analysis</h3>
+                          <ul className="space-y-2">
+                            {invoice.ragInsights.map((insight, insightIdx) => formatInsight(insight))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div className="flex gap-4">
+                        <button 
+                          onClick={() => {
+                            const blob = new Blob([JSON.stringify(invoice.rawJson, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `email-invoice-${invoice.extractedData.invoiceNumber}.json`;
+                            a.click();
+                          }}
+                          className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-semibold hover:bg-blue-700 transition-all"
+                        >
+                          Download JSON
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      {invoice.fieldsValidated.length > 0 && (
+                        <div className="bg-white rounded-2xl shadow-lg p-6">
+                          <h3 className="text-lg font-semibold text-slate-800 mb-3">Validation Status</h3>
+                          <div className="space-y-2">
+                            {invoice.fieldsValidated.map((field, fieldIdx) => (
+                              <div key={fieldIdx} className="flex items-center gap-2 p-2 bg-green-50 rounded-lg">
+                                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span className="text-slate-800 text-sm capitalize">{field.replace('_', ' ')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="bg-white rounded-2xl shadow-lg p-6">
+                        <h3 className="text-lg font-semibold text-slate-800 mb-3">Actions</h3>
+                        <button
+                          disabled={invoice.isDuplicate}
+                          className={`w-full py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 flex items-center justify-center gap-2 ${
+                            invoice.isDuplicate 
+                              ? 'bg-gray-400 text-gray-600 cursor-not-allowed' 
+                              : 'bg-gradient-to-r from-emerald-600 to-green-600 text-white hover:from-emerald-700 hover:to-green-700 hover:shadow-xl transform hover:scale-[1.02]'
+                          }`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                          Submit Payment
+                        </button>
+                      </div>
+
+                      <details className="bg-white rounded-2xl shadow-lg p-6">
+                        <summary className="text-lg font-semibold text-slate-800 cursor-pointer">View JSON</summary>
+                        <pre className="mt-4 bg-slate-900 text-green-400 p-4 rounded-lg overflow-x-auto text-xs">
+                          {JSON.stringify(invoice.rawJson, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -8,9 +8,22 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * Configures Cross-Origin Resource Sharing (CORS) for API endpoints.
+ *
+ * <p>Allows requests from local frontend origins for development convenience.</p>
+ *
+ * @author Anupam Sharma
+ * @since 1.0
+ */
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
 
+    /**
+     * Registers CORS mappings for API routes.
+     *
+     * @param registry CORS registry
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")

@@ -1,5 +1,5 @@
 # workflow.py
-from typing import Dict, Any
+from typing import Dict, Any, Union
 from nodes import (
     ocr_node,
     validate_node,
@@ -12,27 +12,31 @@ from nodes import (
     risk_assessment_node,
     escalation_decision_node,
 )
+from extract_invoice import InvoiceData
 
-def run_workflow(file_bytes: bytes) -> Dict[str, Any]:
+def run_workflow(input_data: Union[bytes, dict, InvoiceData]) -> Dict[str, Any]:
     """
     Autonomous Agent Workflow: OCR → Validate → Embed → Similar → Decision → Risk Assessment → Persist → RAG → Synthesis → Escalation
+    Accepts either file bytes or InvoiceData (dict or model)
     """
-    state: Dict[str, Any] = {"file_bytes": file_bytes}
+    # Determine starting point based on input type
+    if isinstance(input_data, bytes):
+        state: Dict[str, Any] = {"file_bytes": input_data}
+        state = ocr_node(state)  # Extract invoice data from file
+    else:
+        # InvoiceData provided directly (skip OCR)
+        invoice_dict = input_data.dict() if isinstance(input_data, InvoiceData) else input_data
+        state: Dict[str, Any] = {"invoice": invoice_dict}
 
-    # Execute nodes sequentially with autonomous decision making
-    state = ocr_node(state)                    # Extract invoice data
-    state = validate_node(state)               # Validate extracted data
-    state = embed_node(state)                  # Prepare for vector operations
-    state = similar_node(state)                # Check for duplicates BEFORE persisting
-    
-    # AUTONOMOUS DECISION MAKING NODES
-    state = decision_node(state)               # LLM decides next action
-    state = risk_assessment_node(state)        # LLM assesses risk level
-    
-    state = persist_node(state)                # Only persist if not duplicate
-    state = rag_node(state)                    # Build context for synthesis
-    state = synth_node(state)                  # Generate AI recommendations
-    
-    state = escalation_decision_node(state)    # LLM decides if human intervention needed
+    # Execute remaining nodes sequentially
+    state = validate_node(state)
+    state = embed_node(state)
+    state = similar_node(state)
+    state = decision_node(state)
+    state = risk_assessment_node(state)
+    state = persist_node(state)
+    state = rag_node(state)
+    state = synth_node(state)
+    state = escalation_decision_node(state)
 
     return state

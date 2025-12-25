@@ -14,9 +14,10 @@ logger.info(f"Added to sys.path: {Path(__file__).parent}")
 from fastapi import FastAPI, UploadFile, File, Request, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from extract_invoice import extract_invoice_from_xls_bytes
+from extract_invoice import extract_invoice_from_xls_bytes, InvoiceData
 from workflow import run_workflow
 from rag_engine import RAGEngine
+from kafka_producer import kafka_producer
 import traceback
 
 app = FastAPI(title="Invoice AI Processor")
@@ -118,6 +119,64 @@ async def process_invoice(file: UploadFile = File(...)):
 
     except Exception as e:
         logger.error(f"Error processing invoice: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"error": str(e), "traceback": traceback.format_exc()},
+            status_code=500
+        )
+
+
+@app.post("/process-invoice-data")
+async def process_invoice_data(invoice_data: InvoiceData):
+    """Process invoice data and send result to Kafka"""
+    try:
+        logger.info(f"POST /process-invoice-data - Processing invoice: {invoice_data.invoice_number}")
+        
+        # Convert InvoiceData to dict for workflow processing
+        invoice_dict = invoice_data.dict()
+        
+        logger.info("Starting invoice workflow")
+        result = run_workflow(invoice_dict)
+        logger.info("Workflow completed")
+
+        # Prepare response
+        response = {
+            "invoice": result.get("invoice", {}),
+            "validation": result.get("validation", {}),
+            "persisted_chunks": result.get("persisted_chunks", 0),
+            "vector_doc_id": result.get("vector_doc_id", ""),
+            "similar_invoices": result.get("similar_invoices", []),
+            "is_duplicate": result.get("is_duplicate", False),
+            "duplicate_details": result.get("duplicate_details"),
+            "next_action": result.get("next_action", "APPROVE"),
+            "decision_reasoning": result.get("decision_reasoning", ""),
+            "risk_level": result.get("risk_level", "LOW"),
+            "risk_analysis": result.get("risk_analysis", ""),
+            "requires_approval": result.get("requires_approval", False),
+            "escalate_to_human": result.get("escalate_to_human", False),
+            "escalation_reason": result.get("escalation_reason", ""),
+            "priority_level": result.get("priority_level", "NORMAL"),
+            "synthesis": result.get("synthesis", "")
+        }
+        
+        # Send result to Kafka
+        try:
+            kafka_success = kafka_producer.send_invoice_result(response)
+            if kafka_success:
+                logger.info(f"Invoice result sent to Kafka successfully")
+                response["kafka_sent"] = True
+            else:
+                logger.warning(f"Failed to send invoice result to Kafka")
+                response["kafka_sent"] = False
+        except Exception as kafka_error:
+            logger.error(f"Kafka error: {str(kafka_error)}")
+            response["kafka_sent"] = False
+            response["kafka_error"] = str(kafka_error)
+        
+        logger.info(f"Response prepared for invoice: {invoice_data.invoice_number}")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error processing invoice data: {str(e)}", exc_info=True)
         return JSONResponse(
             content={"error": str(e), "traceback": traceback.format_exc()},
             status_code=500
