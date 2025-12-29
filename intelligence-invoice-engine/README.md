@@ -162,9 +162,11 @@ POST http://localhost:8000/process-invoice-data
 {
   "invoice_number": "INV-2024-001",
   "vendor": "ABC Corporation",
+  "vendor_code": "ABC001",
+  "service": "Professional Services",
   "date": "01/15/2024",
   "total_amount": "1,250.00",
-  "raw_text": "INV-2024-001 ABC Corporation 01/15/2024 1,250.00 Professional Services"
+  "raw_text": "INV-2024-001 ABC Corporation ABC001 Professional Services 01/15/2024 1,250.00"
 }
 ```
 
@@ -236,9 +238,11 @@ DELETE http://localhost:8000/vector-db/invoice/{invoice_id}
 {
   "invoice_number": "INV-2024-001",
   "vendor": "ABC Corporation",
+  "vendor_code": "ABC001",
+  "service": "Professional Services",
   "date": "01/15/2024",
   "total_amount": "1,250.00",
-  "raw_text": "INV-2024-001 ABC Corporation 01/15/2024 1,250.00 Professional Services"
+  "raw_text": "INV-2024-001 ABC Corporation ABC001 Professional Services 01/15/2024 1,250.00"
 }
 ```
 5. Click "Execute"
@@ -263,7 +267,7 @@ python test_api.py
 **File:** `extract_invoice.py`
 
 - Reads Excel file row by row
-- Extracts: invoice_number, vendor, date, total_amount
+- Extracts: invoice_number, vendor, vendor_code, service, date, total_amount
 - Captures all text as raw_text
 
 **Output:**
@@ -271,6 +275,8 @@ python test_api.py
 {
   "invoice_number": "INV-2024-001",
   "vendor": "ABC Corporation",
+  "vendor_code": "ABC001",
+  "service": "Professional Services",
   "date": "01/15/2024",
   "total_amount": "1,250.00",
   "raw_text": "..."
@@ -288,7 +294,7 @@ python test_api.py
 {
   "overall_ok": true,
   "issues": [],
-  "fields_validated": ["invoice_number", "vendor", "date", "total_amount"]
+  "fields_validated": ["invoice_number", "vendor", "vendor_code", "service", "date", "total_amount"]
 }
 ```
 
@@ -371,14 +377,16 @@ python test_api.py
   "invoice": {
     "invoice_number": "INV-2024-001",
     "vendor": "ABC Corporation",
+    "vendor_code": "ABC001",
+    "service": "Professional Services",
     "date": "01/15/2024",
     "total_amount": "1,250.00",
-    "raw_text": "INV-2024-001 ABC Corporation 01/15/2024 1,250.00 Professional Services\n"
+    "raw_text": "INV-2024-001 ABC Corporation ABC001 Professional Services 01/15/2024 1,250.00\n"
   },
   "validation": {
     "overall_ok": true,
     "issues": [],
-    "fields_validated": ["invoice_number", "vendor", "date", "total_amount"]
+    "fields_validated": ["invoice_number", "vendor", "vendor_code", "service", "date", "total_amount"]
   },
   "persisted_chunks": 1,
   "vector_doc_id": "invoice_INV-2024-001",
@@ -412,14 +420,16 @@ python test_api.py
   "invoice": {
     "invoice_number": "INV-2024-001",
     "vendor": "ABC Corporation",
+    "vendor_code": "ABC001",
+    "service": "Professional Services",
     "date": "01/15/2024",
     "total_amount": "1,250.00",
-    "raw_text": "INV-2024-001 ABC Corporation 01/15/2024 1,250.00 Professional Services\n"
+    "raw_text": "INV-2024-001 ABC Corporation ABC001 Professional Services 01/15/2024 1,250.00\n"
   },
   "validation": {
     "overall_ok": true,
     "issues": [],
-    "fields_validated": ["invoice_number", "vendor", "date", "total_amount"]
+    "fields_validated": ["invoice_number", "vendor", "vendor_code", "service", "date", "total_amount"]
   },
   "persisted_chunks": 0,
   "vector_doc_id": "invoice_INV-2024-001",

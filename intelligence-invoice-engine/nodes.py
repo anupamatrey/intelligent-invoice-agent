@@ -52,6 +52,8 @@ def embed_node(state: Dict[str, Any]) -> Dict[str, Any]:
     invoice = state.get("invoice", {})
     text = invoice.get("raw_text") or " ".join(filter(None, [
         invoice.get("vendor"),
+        invoice.get("vendor_code"),
+        invoice.get("service"),
         invoice.get("invoice_number"),
         invoice.get("total_amount")
     ]))
@@ -242,6 +244,8 @@ def decision_node(state: Dict[str, Any]) -> Dict[str, Any]:
     Invoice Details:
     - Number: {invoice.get('invoice_number', 'N/A')}
     - Vendor: {invoice.get('vendor', 'N/A')}
+    - Vendor Code: {invoice.get('vendor_code', 'N/A')}
+    - Service: {invoice.get('service', 'N/A')}
     - Amount: {invoice.get('total_amount', 'N/A')}
     - Date: {invoice.get('date', 'N/A')}
     
@@ -318,6 +322,8 @@ def risk_assessment_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     Invoice Analysis:
     - Vendor: {invoice.get('vendor', 'Unknown')}
+    - Vendor Code: {invoice.get('vendor_code', 'Unknown')}
+    - Service: {invoice.get('service', 'Unknown')}
     - Amount: ${amount:,.2f}
     - Similar invoices in system: {len(similar_invoices)}
     - Validation issues: {len(validation.get('issues', []))}
@@ -400,6 +406,8 @@ def escalation_decision_node(state: Dict[str, Any]) -> Dict[str, Any]:
     - Is Duplicate: {is_duplicate}
     - Invoice Amount: {invoice.get('total_amount', 'N/A')}
     - Vendor: {invoice.get('vendor', 'N/A')}
+    - Vendor Code: {invoice.get('vendor_code', 'N/A')}
+    - Service: {invoice.get('service', 'N/A')}
     
     Escalation Criteria:
     - HIGH risk always escalates

@@ -830,3 +830,96 @@ MIT License
 ## Support
 
 For detailed workflow documentation, see [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
+
+
+
+## Table: invoices
+
+- **id** (bigint) NOT NULL
+- **invoice_number** (character varying) NOT NULL
+- **vendor_id** (bigint) NOT NULL
+- **invoice_date** (date) NOT NULL
+- **total_amount** (numeric) NOT NULL
+- **description** (text) 
+- **status** (USER-DEFINED) 
+- **vector_doc_id** (character varying) 
+- **is_duplicate** (boolean) 
+- **gmail_message_id** (character varying) 
+- **attachment_filename** (character varying) 
+- **email_sender** (character varying) 
+- **created_at** (timestamp without time zone) 
+- **updated_at** (timestamp without time zone) 
+- **processed_at** (timestamp without time zone) 
+## Table: processing_errors
+
+- **id** (bigint) NOT NULL
+- **invoice_id** (bigint) NOT NULL
+- **error_message** (text) 
+- **error_type** (character varying) 
+- **retry_count** (integer) 
+- **created_at** (timestamp without time zone) 
+## Table: vendor_analytics
+
+- **vendor_id** (bigint) NOT NULL
+- **total_invoices** (integer) 
+- **total_amount** (numeric) 
+- **last_invoice_date** (date) 
+- **updated_at** (timestamp without time zone) 
+## Table: vendors
+
+- **id** (bigint) NOT NULL
+- **vendor_code** (character varying) NOT NULL
+- **vendor_name** (character varying) NOT NULL
+- **email** (character varying) 
+- **phone** (character varying) 
+- **status** (character varying) 
+- **created_at** (timestamp without time zone) 
+- **updated_at** (timestamp without time zone) 
+
+## Vendor Service Rule Table
+CREATE TABLE vendor_service_rules (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    vendor_code VARCHAR(50) NOT NULL,         -- matches vendors.vendor_code
+    service_name VARCHAR(100) NOT NULL,
+
+    pricing_type VARCHAR(20) DEFAULT 'FIXED',
+    fixed_amount NUMERIC(12,2),
+    min_amount NUMERIC(12,2),
+    max_amount NUMERIC(12,2),
+    currency VARCHAR(10) DEFAULT 'USD',
+    effective_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    effective_to TIMESTAMP NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (vendor_code, service_name)
+);
+
+
+
+
+## Constraint
+
+invoices	CHECK	2200_16515_4_not_null	(null)	(null)	(null)
+invoices	CHECK	2200_16515_1_not_null	(null)	(null)	(null)
+invoices	CHECK	2200_16515_2_not_null	(null)	(null)	(null)
+invoices	CHECK	2200_16515_3_not_null	(null)	(null)	(null)
+invoices	FOREIGN KEY	fk_invoice_vendor	vendor_id	vendors	id
+invoices	UNIQUE	invoices_invoice_number_key	invoice_number	invoices	invoice_number
+invoices	PRIMARY KEY	invoices_pkey	id	invoices	id
+invoices	CHECK	2200_16515_5_not_null	(null)	(null)	(null)
+processing_errors	CHECK	2200_16538_1_not_null	(null)	(null)	(null)
+processing_errors	FOREIGN KEY	fk_processing_invoice	invoice_id	invoices	id
+processing_errors	PRIMARY KEY	processing_errors_pkey	id	processing_errors	id
+processing_errors	CHECK	2200_16538_2_not_null	(null)	(null)	(null)
+vendor_analytics	FOREIGN KEY	fk_analytics_vendor	vendor_id	vendors	id
+vendor_analytics	CHECK	2200_16491_1_not_null	(null)	(null)	(null)
+vendor_analytics	PRIMARY KEY	vendor_analytics_pkey	vendor_id	vendor_analytics	vendor_id
+vendors	CHECK	2200_16467_3_not_null	(null)	(null)	(null)
+vendors	UNIQUE	vendors_vendor_code_key	vendor_code	vendors	vendor_code
+vendors	CHECK	2200_16467_1_not_null	(null)	(null)	(null)
+vendors	CHECK	2200_16467_2_not_null	(null)	(null)	(null)
+vendors	PRIMARY KEY	vendors_pkey	id	vendors	id

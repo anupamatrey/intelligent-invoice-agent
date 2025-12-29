@@ -4,9 +4,10 @@ import pandas as pd
 data = {
     "Invoice Number": ["INV-2024-001"],
     "Vendor": ["ABC Corporation"],
+    "Vendor Code": ["ABC001"],
+    "Service": ["Professional Services"],
     "Date": ["01/15/2024"],
-    "Total Amount": ["1,250.00"],
-    "Description": ["Professional Services"]
+    "Total Amount": ["1,250.00"]
 }
 
 df = pd.DataFrame(data)

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>STOMP WebSocket Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+</head>
+<body>
+    <h1>STOMP WebSocket Test</h1>
+    <div id="status">Disconnected</div>
+    <div id="messages"></div>
+
+    <script>
+        const client = new StompJs.Client({
+            brokerURL: 'ws://localhost:8081/ws-invoice/websocket',
+            reconnectDelay: 5000,
+            heartbeatIncoming: 4000,
+            heartbeatOutgoing: 4000,
+        });
+
+        client.onConnect = (frame) => {
+            console.log('✅ Connected:', frame);
+            document.getElementById('status').textContent = 'Connected';
+            
+            // Subscribe to rejected invoices
+            client.subscribe('/topic/invoices/rejected', (message) => {
+                console.log('📩 Received:', message.body);
+                const div = document.createElement('div');
+                div.textContent = message.body;
+                document.getElementById('messages').appendChild(div);
+            });
+        };
+
+        client.onStompError = (frame) => {
+            console.error('❌ STOMP error:', frame);
+            document.getElementById('status').textContent = 'Error: ' + frame.headers['message'];
+        };
+
+        client.onWebSocketClose = (event) => {
+            console.log('🔌 WebSocket closed:', event);
+            document.getElementById('status').textContent = 'Disconnected';
+        };
+
+        client.activate();
+    </script>
+</body>
+</html>

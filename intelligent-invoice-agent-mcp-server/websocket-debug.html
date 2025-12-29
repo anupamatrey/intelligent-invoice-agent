@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Debug Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { font-family: monospace; margin: 20px; background: #1e1e1e; color: #d4d4d4; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; font-weight: bold; }
+        .connected { background: #4caf50; color: white; }
+        .disconnected { background: #f44336; color: white; }
+        .log { background: #2d2d2d; padding: 10px; margin: 5px 0; border-left: 4px solid #007acc; font-size: 12px; }
+        .message { background: #264f78; padding: 10px; margin: 5px 0; border-left: 4px solid #ffc107; }
+        .error { background: #5a1d1d; border-left-color: #f44336; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #007acc; color: white; border: none; border-radius: 3px; }
+        button:hover { background: #005a9e; }
+        pre { background: #1e1e1e; padding: 10px; overflow-x: auto; border: 1px solid #3c3c3c; }
+        h2 { color: #4ec9b0; }
+        .timestamp { color: #858585; font-size: 11px; }
+        #debugInfo { background: #2d2d2d; padding: 15px; margin: 10px 0; border: 1px solid #3c3c3c; }
+    </style>
+</head>
+<body>
+    <h1>🔍 WebSocket Debug Monitor</h1>
+    
+    <div id="status" class="status disconnected">❌ Disconnected</div>
+    
+    <div id="debugInfo">
+        <strong>Connection Info:</strong><br>
+        URL: <span id="wsUrl">-</span><br>
+        Session ID: <span id="sessionId">-</span><br>
+        Subscribed Topics: <span id="topics">-</span><br>
+        Messages Received: <span id="msgCount">0</span>
+    </div>
+    
+    <button onclick="connect()">🔌 Connect</button>
+    <button onclick="disconnect()">🔌 Disconnect</button>
+    <button onclick="testBroadcast()">📡 Test Broadcast</button>
+    <button onclick="clearLogs()">🗑️ Clear Logs</button>
+    
+    <h2>📋 Connection Logs:</h2>
+    <div id="logs"></div>
+    
+    <h2>📨 Received Messages:</h2>
+    <div id="messages"></div>
+    
+    <script>
+        let stompClient = null;
+        let messageCount = 0;
+        const WS_URL = 'http://localhost:8081/ws';
+        
+        function log(message, isError = false) {
+            const logsDiv = document.getElementById('logs');
+            const logDiv = document.createElement('div');
+            logDiv.className = isError ? 'log error' : 'log';
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            logsDiv.insertBefore(logDiv, logsDiv.firstChild);
+            console.log(`[${timestamp}] ${message}`);
+        }
+        
+        function connect() {
+            log('🔄 Attempting to connect to: ' + WS_URL);
+            document.getElementById('wsUrl').textContent = WS_URL;
+            
+            const socket = new SockJS(WS_URL);
+            stompClient = Stomp.over(socket);
+            
+            // Enable debug logging
+            stompClient.debug = function(str) {
+                log('🐛 STOMP: ' + str);
+            };
+            
+            stompClient.connect({}, 
+                function(frame) {
+                    log('✅ Connected successfully!');
+                    document.getElementById('status').className = 'status connected';
+                    document.getElementById('status').innerHTML = '✅ Connected';
+                    
+                    const sessionId = frame.headers['session'] || 'unknown';
+                    document.getElementById('sessionId').textContent = sessionId;
+                    log('📋 Session ID: ' + sessionId);
+                    
+                    // Subscribe to rejected invoices topic
+                    const subscription = stompClient.subscribe('/topic/invoices/rejected', 
+                        function(message) {
+                            messageCount++;
+                            document.getElementById('msgCount').textContent = messageCount;
+                            log('📨 Message received on /topic/invoices/rejected');
+                            
+                            try {
+                                const data = JSON.parse(message.body);
+                                showMessage(data);
+                                log('✅ Message parsed successfully');
+                            } catch (e) {
+                                log('❌ Failed to parse message: ' + e.message, true);
+                                showRawMessage(message.body);
+                            }
+                        },
+                        function(error) {
+                            log('❌ Subscription error: ' + JSON.stringify(error), true);
+                        }
+                    );
+                    
+                    document.getElementById('topics').textContent = '/topic/invoices/rejected';
+                    log('📡 Subscribed to: /topic/invoices/rejected');
+                    log('🎯 Subscription ID: ' + subscription.id);
+                    
+                    // Test connection
+                    log('✅ Ready to receive messages!');
+                }, 
+                function(error) {
+                    log('❌ Connection error: ' + JSON.stringify(error), true);
+                    document.getElementById('status').className = 'status disconnected';
+                    document.getElementById('status').innerHTML = '❌ Connection Failed';
+                    
+                    if (error.headers && error.headers.message) {
+                        log('❌ Error details: ' + error.headers.message, true);
+                    }
+                }
+            );
+            
+            // Socket event handlers
+            socket.onopen = function() {
+                log('🔌 WebSocket opened');
+            };
+            
+            socket.onclose = function(event) {
+                log('🔌 WebSocket closed: code=' + event.code + ', reason=' + event.reason);
+            };
+            
+            socket.onerror = function(error) {
+                log('❌ WebSocket error: ' + JSON.stringify(error), true);
+            };
+        }
+        
+        function disconnect() {
+            if (stompClient !== null) {
+                stompClient.disconnect(function() {
+                    log('🔌 Disconnected');
+                });
+            }
+            document.getElementById('status').className = 'status disconnected';
+            document.getElementById('status').innerHTML = '❌ Disconnected';
+            document.getElementById('sessionId').textContent = '-';
+            document.getElementById('topics').textContent = '-';
+        }
+        
+        function showMessage(invoice) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.innerHTML = `
+                <strong>🚫 Invoice Rejected: ${invoice.invoice_number || 'N/A'}</strong><br>
+                <strong>Vendor:</strong> ${invoice.vendor || 'N/A'} (${invoice.vendor_code || 'N/A'})<br>
+                <strong>Service:</strong> ${invoice.service || 'N/A'}<br>
+                <strong>Amount:</strong> $${invoice.amount || 0} (Expected: $${invoice.expected_amount || 0})<br>
+                <strong>Reason:</strong> ${invoice.rejection_reason || 'N/A'}<br>
+                <strong>Pricing Type:</strong> ${invoice.pricing_type || 'N/A'}<br>
+                <strong>Source:</strong> ${invoice.source || 'N/A'}<br>
+                <strong>Timestamp:</strong> ${invoice.timestamp || 'N/A'}<br>
+                <details>
+                    <summary>📄 Full JSON</summary>
+                    <pre>${JSON.stringify(invoice, null, 2)}</pre>
+                </details>
+            `;
+            messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
+        }
+        
+        function showRawMessage(body) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message error';
+            messageDiv.innerHTML = `
+                <strong>⚠️ Raw Message (Parse Failed)</strong><br>
+                <pre>${body}</pre>
+            `;
+            messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
+        }
+        
+        function testBroadcast() {
+            log('🧪 Triggering test broadcast...');
+            fetch('http://localhost:8081/api/v1/test/broadcast-rejected', {
+                method: 'POST'
+            })
+            .then(response => response.text())
+            .then(data => {
+                log('✅ Test broadcast triggered: ' + data);
+            })
+            .catch(error => {
+                log('❌ Failed to trigger test broadcast: ' + error.message, true);
+            });
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            document.getElementById('messages').innerHTML = '';
+            messageCount = 0;
+            document.getElementById('msgCount').textContent = '0';
+            log('🗑️ Logs cleared');
+        }
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            log('🚀 Page loaded, auto-connecting...');
+            connect();
+        };
+        
+        // Log page visibility changes
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                log('👁️ Page hidden');
+            } else {
+                log('👁️ Page visible');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 class InvoiceData(BaseModel):
     invoice_number: str | None = None
     vendor: str | None = None
+    vendor_code: str | None = None
+    service: str | None = None
     date: str | None = None
     total_amount: str | None = None
     raw_text: str | None = None
@@ -28,6 +30,8 @@ def extract_invoice_from_excel_rows(xls_bytes: bytes) -> Dict[str, Any]:
     invoice_data = {
         "invoice_number": None,
         "vendor": None,
+        "vendor_code": None,
+        "service": None,
         "date": None,
         "total_amount": None,
         "raw_text": ""
@@ -54,8 +58,22 @@ def extract_invoice_from_excel_rows(xls_bytes: bytes) -> Dict[str, Any]:
             
             # Vendor
             if not invoice_data["vendor"]:
-                if "vendor" in col_lower or "supplier" in col_lower or "from" in col_lower:
+                if "vendor" in col_lower and "code" not in col_lower:
                     invoice_data["vendor"] = str(cell_value).strip()
+                elif "supplier" in col_lower or "from" in col_lower:
+                    invoice_data["vendor"] = str(cell_value).strip()
+            
+            # Vendor Code
+            if not invoice_data["vendor_code"]:
+                if "vendor" in col_lower and "code" in col_lower:
+                    invoice_data["vendor_code"] = str(cell_value).strip()
+                elif "code" in col_lower and "vendor" in val_lower:
+                    invoice_data["vendor_code"] = str(cell_value).strip()
+            
+            # Service
+            if not invoice_data["service"]:
+                if "service" in col_lower or "description" in col_lower:
+                    invoice_data["service"] = str(cell_value).strip()
             
             # Date
             if not invoice_data["date"]:

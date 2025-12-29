@@ -36,6 +36,8 @@ def test_workflow_with_sample():
     invoice = result.get("invoice", {})
     print(f"   Invoice Number: {invoice.get('invoice_number')}")
     print(f"   Vendor: {invoice.get('vendor')}")
+    print(f"   Vendor Code: {invoice.get('vendor_code')}")
+    print(f"   Service: {invoice.get('service')}")
     print(f"   Date: {invoice.get('date')}")
     print(f"   Total Amount: {invoice.get('total_amount')}")
     print()

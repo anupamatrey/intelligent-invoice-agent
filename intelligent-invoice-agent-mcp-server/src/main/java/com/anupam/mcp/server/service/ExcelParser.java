@@ -37,19 +37,27 @@ public class ExcelParser {
         
         try (Workbook workbook = new XSSFWorkbook(inputStream)) {
             Sheet sheet = workbook.getSheetAt(0);
+            LOG.info("📊 Parsing Excel file: {} rows found (including header)", sheet.getLastRowNum() + 1);
             
             // Skip header row
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row != null) {
+                    LOG.debug("Processing row {}", i);
                     Invoice invoice = parseRow(row);
                     if (invoice != null) {
                         invoices.add(invoice);
+                        LOG.info("✅ Row {} parsed successfully", i);
+                    } else {
+                        LOG.warn("❌ Row {} skipped - validation failed", i);
                     }
+                } else {
+                    LOG.debug("Row {} is null, skipping", i);
                 }
             }
+            LOG.info("✅ Successfully parsed {} invoices from {} data rows", invoices.size(), sheet.getLastRowNum());
         } catch (Exception e) {
-            LOG.error("Error parsing Excel file", e);
+            LOG.error("❌ Error parsing Excel file: {}", e.getMessage(), e);
         }
         
         return invoices;
@@ -57,29 +65,37 @@ public class ExcelParser {
 
     /**
      * Parses a single row into an invoice instance.
+     * Expected columns: Invoice Number, Vendor, Vendor Code, Service, Date, Total Amount, Description
      *
      * @param row Excel row
      * @return the parsed invoice, or null if the row is invalid
      */
     private Invoice parseRow(Row row) {
         try {
+            LOG.debug("Parsing row {}: Reading cells...", row.getRowNum());
+            
             String invoiceNumber = getCellValueAsString(row.getCell(0));
             String vendor = getCellValueAsString(row.getCell(1));
-            LocalDate date = getCellValueAsDate(row.getCell(2));
-            BigDecimal totalAmount = getCellValueAsBigDecimal(row.getCell(3));
-            String description = getCellValueAsString(row.getCell(4));
+            String vendorCode = getCellValueAsString(row.getCell(2));
+            String service = getCellValueAsString(row.getCell(3));
+            LocalDate date = getCellValueAsDate(row.getCell(4));
+            BigDecimal totalAmount = getCellValueAsBigDecimal(row.getCell(5));
+            String description = getCellValueAsString(row.getCell(6));
+
+            LOG.debug("Row {} values: invoiceNum={}, vendor={}, vendorCode={}, service={}, date={}, amount={}, desc={}",
+                    row.getRowNum(), invoiceNumber, vendor, vendorCode, service, date, totalAmount, description);
 
             // Validate required fields
-            if (!isValidInvoice(invoiceNumber, vendor, date, totalAmount, description)) {
-                LOG.warn("Row {} rejected: Missing required invoice fields", row.getRowNum());
+            if (!isValidInvoice(invoiceNumber, vendor, vendorCode, service, date, totalAmount, description)) {
+                LOG.warn("❌ Row {} rejected: Missing required invoice fields", row.getRowNum());
                 return null;
             }
 
-            LOG.info("Parsed invoice: num={}, vendor={}, date={}, amount={}, desc={}", 
-                invoiceNumber, vendor, date, totalAmount, description);
-            return new Invoice(invoiceNumber, vendor, date, totalAmount, description);
+            LOG.info("✅ Parsed invoice: num={}, vendor={}, vendorCode={}, service={}, date={}, amount={}, desc={}", 
+                invoiceNumber, vendor, vendorCode, service, date, totalAmount, description);
+            return new Invoice(invoiceNumber, vendor, vendorCode, service, date, totalAmount, description);
         } catch (Exception e) {
-            LOG.warn("Error parsing row {}", row.getRowNum(), e);
+            LOG.error("❌ Error parsing row {}: {}", row.getRowNum(), e.getMessage(), e);
             return null;
         }
     }
@@ -90,30 +106,36 @@ public class ExcelParser {
      *
      * @return true if valid invoice, false otherwise
      */
-    private boolean isValidInvoice(String invoiceNumber, String vendor, LocalDate date, 
-                                   BigDecimal totalAmount, String description) {
+    private boolean isValidInvoice(String invoiceNumber, String vendor, String vendorCode, 
+                                   String service, LocalDate date, BigDecimal totalAmount, 
+                                   String description) {
         // Required fields validation
         if (invoiceNumber == null || invoiceNumber.trim().isEmpty()) {
-            LOG.debug("Validation failed: Missing invoice number");
+            LOG.warn("❌ Validation failed: Missing invoice number");
             return false;
         }
         if (vendor == null || vendor.trim().isEmpty()) {
-            LOG.debug("Validation failed: Missing vendor");
+            LOG.warn("❌ Validation failed: Missing vendor");
+            return false;
+        }
+        if (vendorCode == null || vendorCode.trim().isEmpty()) {
+            LOG.warn("❌ Validation failed: Missing vendor code");
+            return false;
+        }
+        if (service == null || service.trim().isEmpty()) {
+            LOG.warn("❌ Validation failed: Missing service");
             return false;
         }
         if (date == null) {
-            LOG.debug("Validation failed: Missing date");
+            LOG.warn("❌ Validation failed: Missing date");
             return false;
         }
         if (totalAmount == null || totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            LOG.debug("Validation failed: Missing or invalid total amount");
+            LOG.warn("❌ Validation failed: Missing or invalid total amount (value={})", totalAmount);
             return false;
         }
         
-        // Optional: Add more validation rules here
-        // Example: if (description == null) return false;
-        // Example: if (totalAmount.compareTo(new BigDecimal("1000000")) > 0) return false;
-        
+        LOG.debug("✅ All required fields present and valid");
         return true;
     }
 

@@ -373,12 +373,14 @@ public List<Invoice> parseInvoices(InputStream inputStream) {
         // 3. Extract cell values
         String invoiceNumber = getCellValueAsString(row.getCell(0));
         String vendor = getCellValueAsString(row.getCell(1));
-        LocalDate date = getCellValueAsDate(row.getCell(2));  // Supports MM/dd/yyyy, yyyy-MM-dd
-        BigDecimal amount = getCellValueAsBigDecimal(row.getCell(3));  // Handles $1,234.56
-        String description = getCellValueAsString(row.getCell(4));
+        String vendorCode = getCellValueAsString(row.getCell(2));
+        String service = getCellValueAsString(row.getCell(3));
+        LocalDate date = getCellValueAsDate(row.getCell(4));  // Supports MM/dd/yyyy, yyyy-MM-dd
+        BigDecimal amount = getCellValueAsBigDecimal(row.getCell(5));  // Handles $1,234.56
+        String description = getCellValueAsString(row.getCell(6));
         
         // 4. Create Invoice object
-        invoices.add(new Invoice(invoiceNumber, vendor, date, amount, description));
+        invoices.add(new Invoice(invoiceNumber, vendor, vendorCode, service, date, amount, description));
     }
     
     return invoices;
@@ -393,9 +395,11 @@ public List<Invoice> parseInvoices(InputStream inputStream) {
 private void processInvoices(List<Invoice> invoices, String filename) {
     // 1. Log invoice details
     for (Invoice invoice : invoices) {
-        LOG.info("Invoice: {} - {} - {} - {} - {}", 
+        LOG.info("Invoice: {} - {} - {} - {} - {} - {} - {}", 
             invoice.getInvoiceNumber(),
             invoice.getVendor(),
+            invoice.getVendorCode(),
+            invoice.getService(),
             invoice.getDate(),
             invoice.getTotalAmount(),
             invoice.getDescription());
@@ -456,9 +460,11 @@ GOOGLE_PUSH_ENDPOINT_URI=https://your-ngrok-url.ngrok-free.app/webhook/gmail/pus
 **Excel Format Expected:**
 - Column A: Invoice Number (String)
 - Column B: Vendor (String)
-- Column C: Date (MM/dd/yyyy or yyyy-MM-dd)
-- Column D: Total Amount (Number or String like "$1,234.56")
-- Column E: Description (String)
+- Column C: Vendor Code (String)
+- Column D: Service (String)
+- Column E: Date (MM/dd/yyyy or yyyy-MM-dd)
+- Column F: Total Amount (Number or String like "$1,234.56")
+- Column G: Description (String)
 
 ### Rate Limiting & Error Handling
 

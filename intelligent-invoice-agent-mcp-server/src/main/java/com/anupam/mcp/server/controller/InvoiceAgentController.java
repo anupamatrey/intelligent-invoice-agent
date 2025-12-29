@@ -2,9 +2,11 @@ package com.anupam.mcp.server.controller;
 
 
 import com.anupam.mcp.server.service.ExtractInvoiceService;
+import com.anupam.mcp.server.service.InvoiceProcessingService;
 import com.anupam.mcp.server.service.RandomDataGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,7 @@ public class InvoiceAgentController {
     private final ExtractInvoiceService extractInvoiceService;
     private final RandomDataGenerator randomDataGenerator;
     private final ObjectMapper objectMapper;
+    private final InvoiceProcessingService invoiceProcessingService;
 
     /**
      * Creates a new controller instance.
@@ -48,11 +51,16 @@ public class InvoiceAgentController {
      * @param extractInvoiceService service that delegates invoice extraction to Python API
      * @param randomDataGenerator   generator for streaming demo customer data
      * @param objectMapper          JSON mapper
+     * @param invoiceProcessingService centralized invoice processing service
      */
-    public InvoiceAgentController(ExtractInvoiceService extractInvoiceService, RandomDataGenerator randomDataGenerator, ObjectMapper objectMapper) {
+    public InvoiceAgentController(ExtractInvoiceService extractInvoiceService, 
+                                 RandomDataGenerator randomDataGenerator, 
+                                 ObjectMapper objectMapper,
+                                 InvoiceProcessingService invoiceProcessingService) {
         this.extractInvoiceService = extractInvoiceService;
         this.randomDataGenerator = randomDataGenerator;
         this.objectMapper = objectMapper;
+        this.invoiceProcessingService = invoiceProcessingService;
     }
 
     /**
@@ -89,27 +97,71 @@ public class InvoiceAgentController {
     }
 
     /**
-     * Uploads an invoice file and forwards it to the Python extractor service.
+     * Uploads an invoice file and processes it through rule validation and Python API.
      *
      * @param file the invoice Excel file to process
      * @return a structured map suitable for JSON serialization
      */
     @PostMapping("/invoice-agent/upload")
     public Map<String, Object> processInvoice(@RequestParam("file") MultipartFile file) {
-        LOG.info("Processing invoice XLSX: {}", file.getOriginalFilename());
-        String response = extractInvoiceService.extractInvoiceData(file);
-        LOG.info("Python API Response: {}", response);
-        try {
-            Map<String, Object> result = objectMapper.readValue(response, Map.class);
-            Map<String, Object> serializableResult = createSerializableResult(result);
-            LOG.info("Structured Response: {}", objectMapper.writeValueAsString(serializableResult));
-            return serializableResult;
-        } catch (Exception e) {
-            LOG.error("Error parsing response", e);
-            Map<String, Object> errorResult = createSerializableResult(new HashMap<>());
-            LOG.info("Error Response: {}", errorResult);
-            return errorResult;
+        LOG.info("📤 Manual upload: {}", file.getOriginalFilename());
+        
+        // Delegate to centralized processing service
+        var results = invoiceProcessingService.processInvoiceFile(file, "MANUAL_UPLOAD");
+        
+        // Build API response
+        return buildApiResponse(results, file.getOriginalFilename());
+    }
+    
+    /**
+     * Builds API response from processing results.
+     *
+     * @param results list of processing results
+     * @param filename original filename
+     * @return structured response map
+     */
+    private Map<String, Object> buildApiResponse(List<com.anupam.mcp.server.model.InvoiceProcessingResult> results, 
+                                                 String filename) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("filename", filename);
+        response.put("total_invoices", results.size());
+        response.put("successful", results.stream().filter(r -> r.isSuccess()).count());
+        response.put("rejected", results.stream().filter(r -> r.isRejected()).count());
+        response.put("failed", results.stream().filter(r -> r.isError()).count());
+        
+        // Add detailed results
+        List<Map<String, Object>> detailedResults = new ArrayList<>();
+        for (var result : results) {
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("status", result.getStatus().toString());
+            detail.put("invoice_number", result.getInvoice() != null ? result.getInvoice().getInvoiceNumber() : null);
+            detail.put("error_message", result.getErrorMessage());
+            
+            if (result.isSuccess() && result.getPythonApiResponse() != null) {
+                try {
+                    Map<String, Object> pythonData = objectMapper.readValue(result.getPythonApiResponse(), Map.class);
+                    detail.put("python_response", createSerializableResult(pythonData));
+                } catch (Exception e) {
+                    LOG.warn("Failed to parse Python API response", e);
+                    detail.put("python_response", result.getPythonApiResponse());
+                }
+            }
+            
+            if (result.getRuleResponse() != null) {
+                Map<String, Object> ruleData = new HashMap<>();
+                ruleData.put("valid", result.getRuleResponse().isValid());
+                ruleData.put("reason", result.getRuleResponse().getReason());
+                ruleData.put("expected_amount", result.getRuleResponse().getExpectedAmount());
+                ruleData.put("actual_amount", result.getRuleResponse().getActualAmount());
+                ruleData.put("pricing_type", result.getRuleResponse().getPricingType());
+                detail.put("rule_validation", ruleData);
+            }
+            
+            detailedResults.add(detail);
         }
+        response.put("results", detailedResults);
+        
+        return response;
     }
     
     /**

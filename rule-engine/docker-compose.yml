@@ -1,0 +1,34 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: rule-engine-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - rule-engine-network
+
+  rule-engine:
+    build: .
+    container_name: rule-engine-app
+    ports:
+      - "8082:8082"
+      - "5005:5005"
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+    depends_on:
+      - redis
+    networks:
+      - rule-engine-network
+
+networks:
+  rule-engine-network:
+    driver: bridge
+
+volumes:
+  redis-data:

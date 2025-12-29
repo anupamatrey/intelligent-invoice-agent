@@ -18,6 +18,12 @@ def run_all_validations(invoice: Dict[str, Any]) -> Dict[str, Any]:
     if not invoice.get("vendor"):
         issues.append("Missing vendor")
     
+    if not invoice.get("vendor_code"):
+        issues.append("Missing vendor code")
+    
+    if not invoice.get("service"):
+        issues.append("Missing service")
+    
     if not invoice.get("date"):
         issues.append("Missing date")
     
@@ -29,7 +35,7 @@ def run_all_validations(invoice: Dict[str, Any]) -> Dict[str, Any]:
     validation_result = {
         "overall_ok": overall_ok,
         "issues": issues,
-        "fields_validated": ["invoice_number", "vendor", "date", "total_amount"]
+        "fields_validated": ["invoice_number", "vendor", "vendor_code", "service", "date", "total_amount"]
     }
     
     logger.info(f"Validation result: {validation_result}")

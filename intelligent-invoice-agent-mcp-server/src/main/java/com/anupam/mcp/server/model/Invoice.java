@@ -20,6 +20,12 @@ public class Invoice {
     @JsonProperty("vendor")
     private String vendor;
     
+    @JsonProperty("vendor_code")
+    private String vendorCode;
+    
+    @JsonProperty("service")
+    private String service;
+    
     @JsonProperty("date")
     @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.ser.std.ToStringSerializer.class)
     private LocalDate date;
@@ -41,14 +47,18 @@ public class Invoice {
      *
      * @param invoiceNumber invoice identifier/number
      * @param vendor        vendor name
+     * @param vendorCode    vendor code
+     * @param service       service type
      * @param date          invoice date
      * @param totalAmount   total amount
      * @param description   optional description or notes
      */
-    public Invoice(String invoiceNumber, String vendor, LocalDate date, 
-                   BigDecimal totalAmount, String description) {
+    public Invoice(String invoiceNumber, String vendor, String vendorCode, String service,
+                   LocalDate date, BigDecimal totalAmount, String description) {
         this.invoiceNumber = invoiceNumber;
         this.vendor = vendor;
+        this.vendorCode = vendorCode;
+        this.service = service;
         this.date = date;
         this.totalAmount = totalAmount;
         this.description = description;
@@ -60,6 +70,12 @@ public class Invoice {
 
     public String getVendor() { return vendor; }
     public void setVendor(String vendor) { this.vendor = vendor; }
+
+    public String getVendorCode() { return vendorCode; }
+    public void setVendorCode(String vendorCode) { this.vendorCode = vendorCode; }
+
+    public String getService() { return service; }
+    public void setService(String service) { this.service = service; }
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }

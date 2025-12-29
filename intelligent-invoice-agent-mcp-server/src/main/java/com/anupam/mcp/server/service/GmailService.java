@@ -52,6 +52,7 @@ public class GmailService {
 
     private final ExcelParser excelParser;
     private final ExtractInvoiceService extractInvoiceService;
+    private final InvoiceProcessingService invoiceProcessingService;
     private Gmail gmail;
     private volatile boolean isProcessing = false;
     private long lastProcessTime = 0;
@@ -62,10 +63,13 @@ public class GmailService {
      *
      * @param excelParser parser used to extract invoices from Excel attachments
      * @param extractInvoiceService service to send invoices to Python API
+     * @param invoiceProcessingService centralized invoice processing service
      */
-    public GmailService(ExcelParser excelParser, ExtractInvoiceService extractInvoiceService) {
+    public GmailService(ExcelParser excelParser, ExtractInvoiceService extractInvoiceService,
+                       InvoiceProcessingService invoiceProcessingService) {
         this.excelParser = excelParser;
         this.extractInvoiceService = extractInvoiceService;
+        this.invoiceProcessingService = invoiceProcessingService;
         LOG.info("GmailService initialized");
     }
 
@@ -281,31 +285,28 @@ public class GmailService {
     }
 
     /**
-     * Handles parsed invoices. Logs details and sends to Python API for processing.
+     * Handles parsed invoices. Delegates to InvoiceProcessingService for rule validation and Python API processing.
      *
      * @param invoices list of parsed invoices
      * @param filename source filename for traceability
      */
     private void processInvoices(List<Invoice> invoices, String filename) {
-        LOG.info("Parsed {} invoices from attachment: {}", invoices.size(), filename);
+        // Delegate to centralized processing service
+        var results = invoiceProcessingService.processInvoices(invoices, filename, "EMAIL");
         
-        // Reject file if no valid invoices found
-        if (invoices.isEmpty()) {
-            LOG.warn("File '{}' rejected: No valid invoice data found. This is not an invoice file.", filename);
-            return;
-        }
-        
-        for (Invoice invoice : invoices) {
-            LOG.info("Invoice: {} - {} - {} - {} - {}", 
-                    invoice.getInvoiceNumber(), 
-                    invoice.getVendor(), 
-                    invoice.getDate(),
-                    invoice.getTotalAmount(),
-                    invoice.getDescription());
-            
-            // Send to Python API for processing
-            String response = extractInvoiceService.processInvoiceData(invoice);
-            LOG.info("Python API response for invoice {}: {}", invoice.getInvoiceNumber(), response);
+        // Log results
+        for (var result : results) {
+            if (result.isSuccess()) {
+                LOG.info("✅ Invoice {} processed successfully", result.getInvoice().getInvoiceNumber());
+            } else if (result.isRejected()) {
+                LOG.warn("❌ Invoice {} rejected: {}", 
+                        result.getInvoice() != null ? result.getInvoice().getInvoiceNumber() : "N/A", 
+                        result.getErrorMessage());
+            } else {
+                LOG.error("❌ Invoice {} failed: {}", 
+                         result.getInvoice() != null ? result.getInvoice().getInvoiceNumber() : "N/A", 
+                         result.getErrorMessage());
+            }
         }
     }
 }
