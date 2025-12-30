@@ -17,7 +17,7 @@ public class WebSocketTestController {
 
     @PostMapping("/broadcast")
     public Map<String, String> testBroadcast(@RequestBody String message) {
-        webSocketBroadcastService.broadcastInvoiceUpdate(message);
+        webSocketBroadcastService.broadcastInvoiceUpdate(message,false);
         return Map.of("status", "Message broadcast to WebSocket clients");
     }
 }

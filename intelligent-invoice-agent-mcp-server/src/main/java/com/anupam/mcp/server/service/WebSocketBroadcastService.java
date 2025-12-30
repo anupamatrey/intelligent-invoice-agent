@@ -27,6 +27,7 @@ public class WebSocketBroadcastService {
 
     private static final Logger LOG = LoggerFactory.getLogger(WebSocketBroadcastService.class);
     private static final String INVOICE_TOPIC = "/topic/invoice-updates";
+    private static final String DUPLICATE_INVOICE_TOPIC = "/topic/duplicate_invoice";
     private static final String ERROR_TOPIC = "/topic/invoice-errors";
     
     private final SimpMessagingTemplate messagingTemplate;
@@ -53,10 +54,15 @@ public class WebSocketBroadcastService {
      */
     @Retry(name = "websocketBroadcast", fallbackMethod = "broadcastFallback")
     @CircuitBreaker(name = "websocketBroadcast", fallbackMethod = "broadcastFallback")
-    public void broadcastInvoiceUpdate(String message) {
+    public void broadcastInvoiceUpdate(String message, Boolean isDuplicate) {
         LOG.info("📡 Broadcasting invoice update to WebSocket clients");
-        messagingTemplate.convertAndSend(INVOICE_TOPIC, message);
-        LOG.info("✅ Successfully broadcast message to {}", INVOICE_TOPIC);
+        if(Boolean.TRUE.equals(isDuplicate)) {
+            messagingTemplate.convertAndSend(DUPLICATE_INVOICE_TOPIC, message);
+            LOG.info("✅ Successfully broadcast duplicate invoice message to {}", DUPLICATE_INVOICE_TOPIC);
+        } else {
+            messagingTemplate.convertAndSend(INVOICE_TOPIC, message);
+            LOG.info("✅ Successfully broadcast message to {}", INVOICE_TOPIC);
+        }
     }
 
     /**
@@ -69,7 +75,7 @@ public class WebSocketBroadcastService {
      * @param message the original message that failed
      * @param throwable the exception that caused the failure
      */
-    public void broadcastFallback(String message, Throwable throwable) {
+    public void broadcastFallback(String message, Boolean isDuplicate,Throwable throwable) {
         LOG.error("❌ WebSocket broadcast failed after retries. Sending error notification.", throwable);
         
         try {

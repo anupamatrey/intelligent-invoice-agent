@@ -27,17 +27,20 @@ public class InvoiceProcessingService {
     private final RuleEngineService ruleEngineService;
     private final ExtractInvoiceService extractInvoiceService;
     private final WebSocketBroadcastService webSocketBroadcastService;
+    private final InvoicePersistenceService invoicePersistenceService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     
     public InvoiceProcessingService(ExcelParser excelParser, 
                                    RuleEngineService ruleEngineService,
                                    ExtractInvoiceService extractInvoiceService,
                                    WebSocketBroadcastService webSocketBroadcastService,
+                                   InvoicePersistenceService invoicePersistenceService,
                                    com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.excelParser = excelParser;
         this.ruleEngineService = ruleEngineService;
         this.extractInvoiceService = extractInvoiceService;
         this.webSocketBroadcastService = webSocketBroadcastService;
+        this.invoicePersistenceService = invoicePersistenceService;
         this.objectMapper = objectMapper;
     }
     
@@ -141,6 +144,15 @@ public class InvoiceProcessingService {
             if (!ruleResponse.isValid()) {
                 LOG.warn("❌ Invoice {} rejected by rule engine: {} for file: {} with source: {}",
                         invoice.getInvoiceNumber(), ruleResponse.getReason(), filename, source);
+                
+                // Save rejected invoice to database
+                try {
+                    invoice.setStatus("REJECTED");
+                    invoice.setRejectedReason(ruleResponse.getReason());
+                    invoicePersistenceService.saveInvoice(invoice, null, filename, null, false);
+                } catch (Exception e) {
+                    LOG.error("❌ Failed to save rejected invoice to DB", e);
+                }
                 
                 // Broadcast rejection to WebSocket clients
                 try {

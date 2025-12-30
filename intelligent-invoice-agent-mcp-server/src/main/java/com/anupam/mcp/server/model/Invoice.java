@@ -36,6 +36,15 @@ public class Invoice {
     
     @JsonProperty("description")
     private String description;
+    
+    @JsonProperty("status")
+    private String status;
+    
+    @JsonProperty("rejected_reason")
+    private String rejectedReason;
+
+    @JsonProperty("is_duplicate")
+    private java.lang.Boolean isDuplicate;
 
     /**
      * Creates an empty invoice instance.
@@ -62,6 +71,7 @@ public class Invoice {
         this.date = date;
         this.totalAmount = totalAmount;
         this.description = description;
+        this.status = "PENDING";
     }
 
     // Getters and Setters
@@ -85,4 +95,13 @@ public class Invoice {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    
+    public String getRejectedReason() { return rejectedReason; }
+    public void setRejectedReason(String rejectedReason) { this.rejectedReason = rejectedReason; }
+
+    public Boolean getDuplicate() { return isDuplicate; }
+    public void setDuplicate(Boolean duplicate) { isDuplicate = duplicate; }
 }
